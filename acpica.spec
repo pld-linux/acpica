@@ -2,7 +2,7 @@ Summary:	ACPI Component Architecture - an assembler and disassembler for DSDT ta
 Name:		acpica
 Version:	20080729
 Release:	1
-License:	Custom
+License:	http://www.acpica.org/downloads/unix_source_code.php
 URL:		http://www.acpica.org
 Source0:	http://www.acpica.org/download/%{name}-unix-%{version}.tar.gz
 # Source0-md5:	507a688b7231b4f62f296f77dcf765fa
