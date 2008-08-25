@@ -36,11 +36,13 @@ find . -name Makefile |xargs perl -pi -e "s,-O2,%{rpmcflags},g"
 rm -rf $RPM_BUILD_ROOT
 install -d $RPM_BUILD_ROOT%{_bindir}
 
-install -c compiler/iasl $RPM_BUILD_ROOT%{_bindir}
+install tools/acpisrc/acpisrc compiler/iasl $RPM_BUILD_ROOT%{_bindir}
 
 %clean
 rm -rf $RPM_BUILD_ROOT
 
 %files
 %defattr(644,root,root,755)
+%doc README changes.txt
+%attr(755,root,root) %{_bindir}/acpisrc
 %attr(755,root,root) %{_bindir}/iasl
