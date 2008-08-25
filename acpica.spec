@@ -1,12 +1,13 @@
 Summary:	ACPI Component Architecture - an assembler and disassembler for DSDT tables
+Summary(pl.UTF-8):	ACPI CA - asembler i disasembler dla tablic DSDT
 Name:		acpica
 Version:	20080729
 Release:	1
-License:	http://www.acpica.org/downloads/unix_source_code.php
-URL:		http://www.acpica.org
-Source0:	http://www.acpica.org/download/%{name}-unix-%{version}.tar.gz
-# Source0-md5:	507a688b7231b4f62f296f77dcf765fa
+License:	distributable (http://acpica.org/downloads/unix_source_code.php)
 Group:		Development/Tools
+Source0:	http://acpica.org/download/%{name}-unix-%{version}.tar.gz
+# Source0-md5:	507a688b7231b4f62f296f77dcf765fa
+URL:		http://acpica.org/
 BuildRequires:	bison
 Provides:	iasl
 Obsoletes:	iasl
@@ -14,7 +15,11 @@ BuildRoot:	%{tmpdir}/%{name}-%{version}-root-%(id -u -n)
 
 %description
 ACPI Component Architecture - an assembler and disassembler for DSDT
-tables
+tables.
+
+%description -l pl.UTF-8
+Pakiet ACPI Component Architecture zawiera asembler i disasembler do
+tablic DSDT.
 
 %prep
 %setup -q -n %{name}-unix-%version
@@ -33,9 +38,9 @@ install -d $RPM_BUILD_ROOT%{_bindir}
 
 install -c compiler/iasl $RPM_BUILD_ROOT%{_bindir}
 
+%clean
+rm -rf $RPM_BUILD_ROOT
+
 %files
 %defattr(644,root,root,755)
-%attr(755,root,root) %{_bindir}/*
-
-%clean
-rm -rf $RPM_BUILD_ROOT $RPM_BUILD_DIR/%{name}-%{version}
+%attr(755,root,root) %{_bindir}/iasl
