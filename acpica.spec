@@ -9,6 +9,7 @@ Source0:	http://acpica.org/download/%{name}-unix-%{version}.tar.gz
 # Source0-md5:	ae9da90dfbc68493a3af0ed7961511b6
 URL:		http://acpica.org/
 BuildRequires:	bison
+BuildRequires:	flex
 Provides:	iasl
 Obsoletes:	iasl
 BuildRoot:	%{tmpdir}/%{name}-%{version}-root-%(id -u -n)
