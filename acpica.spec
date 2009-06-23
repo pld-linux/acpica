@@ -30,7 +30,7 @@ find . -name Makefile |xargs perl -pi -e "s,-O2,%{rpmcflags},g"
 %build
 %{__make} -C tools/acpisrc \
 	CC="%{__cc}"
-%{__make} -C compiler \
+%{__make} -j1 -C compiler \
 	CC="%{__cc}"
 
 %install
