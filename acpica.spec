@@ -10,6 +10,7 @@ Source0:	http://acpica.org/download/%{name}-unix-%{version}.tar.gz
 URL:		http://acpica.org/
 BuildRequires:	bison
 BuildRequires:	flex
+BuildRequires:	sed >= 4.0
 Provides:	iasl
 Obsoletes:	iasl
 BuildRoot:	%{tmpdir}/%{name}-%{version}-root-%(id -u -n)
@@ -25,13 +26,17 @@ tablic DSDT.
 %prep
 %setup -q -n %{name}-unix-%version
 
-find . -name Makefile |xargs perl -pi -e "s,-O2,%{rpmcflags},g"
+sed 's/-O2/$(OPTCFLAGS)/g' -i tools/acpisrc/Makefile compiler/Makefile
 
 %build
 %{__make} -C tools/acpisrc \
-	CC="%{__cc}"
+	CC="%{__cc}" \
+	OPTCFLAGS="%{rpmcflags}" \
+	LDFLAGS="%{rpmcflags} %{rpmldflags}"
 %{__make} -j1 -C compiler \
-	CC="%{__cc}"
+	CC="%{__cc}" \
+	OPTCFLAGS="%{rpmcflags}" \
+	LDFLAGS="%{rpmcflags} %{rpmldflags}"
 
 %install
 rm -rf $RPM_BUILD_ROOT
