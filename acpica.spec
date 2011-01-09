@@ -1,12 +1,12 @@
 Summary:	ACPI Component Architecture - an assembler and disassembler for DSDT tables
 Summary(pl.UTF-8):	ACPI CA - asembler i disasembler dla tablic DSDT
 Name:		acpica
-Version:	20100702
+Version:	20101209
 Release:	1
 License:	distributable (http://acpica.org/downloads/unix_source_code.php)
 Group:		Development/Tools
 Source0:	http://acpica.org/download/%{name}-unix-%{version}.tar.gz
-# Source0-md5:	52fb0826e191f26eaec9e24efa025797
+# Source0-md5:	b6995d38695145b5ebce785471f1fa54
 URL:		http://acpica.org/
 BuildRequires:	bison
 BuildRequires:	flex
@@ -27,7 +27,7 @@ tablic DSDT.
 %setup -q -n %{name}-unix-%version
 
 sed 's/-O2/$(OPTCFLAGS)/g' -i tools/acpisrc/Makefile compiler/Makefile
-sed 's/\/components//g' -i tools/acpisrc/Makefile compiler/Makefile
+sed 's,/components,,g' -i tools/acpisrc/Makefile compiler/Makefile
 
 %build
 %{__make} -C tools/acpisrc \
