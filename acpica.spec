@@ -1,12 +1,12 @@
 Summary:	ACPI Component Architecture - an assembler and disassembler for DSDT tables
 Summary(pl.UTF-8):	ACPI CA - asembler i disasembler dla tablic DSDT
 Name:		acpica
-Version:	20120111
+Version:	20131115
 Release:	1
-License:	distributable (http://acpica.org/downloads/unix_source_code.php)
+License:	GPL v2
 Group:		Development/Tools
-Source0:	http://acpica.org/download/%{name}-unix-%{version}.tar.gz
-# Source0-md5:	986f0e0af6a1d4dd22b9feb38404c233
+Source0:	https://acpica.org/sites/acpica/files/%{name}-unix2-%{version}.tar.gz
+# Source0-md5:	1bd5b14c4c567ca2a113c05f4b28f29c
 URL:		http://acpica.org/
 BuildRequires:	bison
 BuildRequires:	flex
@@ -24,32 +24,34 @@ Pakiet ACPI Component Architecture zawiera asembler i disasembler do
 tablic DSDT.
 
 %prep
-%setup -q -n %{name}-unix-%version
+%setup -q -n %{name}-unix2-%{version}
 
-sed 's/-O2/$(OPTCFLAGS)/g' -i tools/acpisrc/Makefile compiler/Makefile
-sed 's,/components,,g' -i tools/acpisrc/Makefile compiler/Makefile
+%{__sed} -e "s/^LINKPROG = .*/& \$(RPMLDFLAGS)/" generate/unix/Makefile.config
 
 %build
-%{__make} -C tools/acpisrc \
+%{__make} \
 	CC="%{__cc}" \
-	OPTCFLAGS="%{rpmcflags}" \
-	LDFLAGS="%{rpmcflags} %{rpmldflags}"
-%{__make} -j1 -C compiler \
-	CC="%{__cc}" \
-	OPTCFLAGS="%{rpmcflags}" \
-	LDFLAGS="%{rpmcflags} -lpthread -lrt %{rpmldflags}"
+	OPT_CFLAGS="%{rpmcflags}" \
+	RPMLDFLAGS="%{rpmcflags} %{rpmldflags}"
 
 %install
 rm -rf $RPM_BUILD_ROOT
 install -d $RPM_BUILD_ROOT%{_bindir}
 
-install tools/acpisrc/acpisrc compiler/iasl $RPM_BUILD_ROOT%{_bindir}
+%{__make} install \
+	DESTDIR=$RPM_BUILD_ROOT
 
 %clean
 rm -rf $RPM_BUILD_ROOT
 
 %files
 %defattr(644,root,root,755)
-%doc README changes.txt
+%doc changes.txt
+%attr(755,root,root) %{_bindir}/acpibin
+%attr(755,root,root) %{_bindir}/acpidump
+%attr(755,root,root) %{_bindir}/acpiexec
+%attr(755,root,root) %{_bindir}/acpihelp
+%attr(755,root,root) %{_bindir}/acpinames
 %attr(755,root,root) %{_bindir}/acpisrc
+%attr(755,root,root) %{_bindir}/acpixtract
 %attr(755,root,root) %{_bindir}/iasl
