@@ -30,6 +30,7 @@ tablic DSDT.
 
 %build
 %{__make} \
+	HOST=_LINUX \
 	CC="%{__cc}" \
 	OPT_CFLAGS="%{rpmcflags}" \
 	RPMLDFLAGS="%{rpmcflags} %{rpmldflags}"
