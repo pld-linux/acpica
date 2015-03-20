@@ -45,19 +45,15 @@ tar -x --strip-components=1 -f %{SOURCE1}
 %patch6 -p1
 %patch7 -p1
 
-%{__sed} -e "s/^LINKPROG = .*/& \$(RPMLDFLAGS)/" generate/unix/Makefile.config
-
 %build
 %{__make} \
 	HOST=_LINUX \
 	CC="%{__cc}" \
 	OPT_CFLAGS="%{rpmcflags}" \
-	RPMLDFLAGS="%{rpmcflags} %{rpmldflags}"
+	OPT_LDFLAGS="%{rpmcflags} %{rpmldflags}"
 
 %install
 rm -rf $RPM_BUILD_ROOT
-install -d $RPM_BUILD_ROOT%{_bindir}
-
 %{__make} install \
 	DESTDIR=$RPM_BUILD_ROOT
 
