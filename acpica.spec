@@ -7,6 +7,16 @@ License:	GPL v2
 Group:		Development/Tools
 Source0:	https://acpica.org/sites/acpica/files/%{name}-unix2-%{version}.tar.gz
 # Source0-md5:	af9f1e67023fa85f9d6abf28b5345abd
+Source1:	https://acpica.org/sites/acpica/files/acpitests-unix-%{version}.tar.gz
+# Source1-md5:	64f6360eb986524254849930ff0a711f
+Patch0:		debian-big_endian.patch
+Patch1:		debian-unaligned.patch
+Patch2:		name-miscompare.patch
+Patch3:		aapits-linux.patch
+Patch4:		asllookup-miscompare.patch
+Patch5:		aapits-makefile.patch
+Patch6:		re-enable-big-endian.patch
+Patch7:		OPT_LDFLAGS.patch
 URL:		https://acpica.org/
 BuildRequires:	bison
 BuildRequires:	flex
@@ -25,6 +35,15 @@ tablic DSDT.
 
 %prep
 %setup -q -n %{name}-unix2-%{version}
+tar -x --strip-components=1 -f %{SOURCE1}
+%patch0 -p1
+%patch1 -p1
+%patch2 -p1
+%patch3 -p1
+%patch4 -p1
+%patch5 -p1
+%patch6 -p1
+%patch7 -p1
 
 %{__sed} -e "s/^LINKPROG = .*/& \$(RPMLDFLAGS)/" generate/unix/Makefile.config
 

@@ -1,0 +1,34 @@
+diff -Naur acpica-unix2-20140926/generate/unix/Makefile.config acpica-unix2-20140926-patch/generate/unix/Makefile.config
+--- acpica-unix2-20140926/generate/unix/Makefile.config	2014-09-26 12:02:29.000000000 -0600
++++ acpica-unix2-20140926-patch/generate/unix/Makefile.config	2014-10-01 12:53:53.510530248 -0600
+@@ -23,6 +23,9 @@
+ # OPT_CFLAGS can be overridden on the make command line by
+ #   adding OPT_CFLAGS="..." to the invocation.
+ #
++# OPT_LDFLAGS can be overridden on the make command line by
++#   adding OPT_LDFLAGS="..." to the invocation.
++#
+ # Notes:
+ #   gcc should be version 4 or greater, otherwise some of the options
+ #     used will not be recognized.
+@@ -43,7 +46,7 @@
+ OBJDIR =     obj
+ BINDIR =     bin
+ COMPILEOBJ = $(CC) -c $(CFLAGS) $(OPT_CFLAGS) -o $@ $<
+-LINKPROG =   $(CC) $(OBJECTS) -o $(PROG) $(LDFLAGS)
++LINKPROG =   $(CC) $(OBJECTS) -o $(PROG) $(LDFLAGS) $(OPT_LDFLAGS)
+ PREFIX ?=    /usr
+ INSTALLDIR = $(PREFIX)/bin
+ UNAME_S := $(shell uname -s)
+@@ -136,6 +139,11 @@
+ OPT_CFLAGS ?= $(CWARNINGFLAGS)
+ 
+ #
++# Common linker flags
++#
++OPT_LDFLAGS ?= 
++
++#
+ # Optionally disable optimizations. Optimization causes problems on
+ # some compilers such as gcc 4.4
+ #

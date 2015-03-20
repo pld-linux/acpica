@@ -1,0 +1,22 @@
+diff -urN acpica-unix2-20140214/source/compiler/asllookup.c acpica-unix2-20140214-patch/source/compiler/asllookup.c
+--- acpica-unix2-20140214/source/compiler/asllookup.c	2014-02-14 16:23:33.000000000 -0700
++++ acpica-unix2-20140214-patch/source/compiler/asllookup.c	2014-02-27 11:50:52.168659866 -0700
+@@ -119,6 +119,7 @@
+ {
+     ACPI_NAMESPACE_NODE     *Node = ACPI_CAST_PTR (ACPI_NAMESPACE_NODE, ObjHandle);
+     ACPI_NAMESPACE_NODE     *Next;
++    ACPI_NAME_UNION         tmp;
+ 
+ 
+     /* Referenced flag is set during the namespace xref */
+@@ -162,8 +163,9 @@
+              * Issue a remark even if it is a reserved name (starts
+              * with an underscore).
+              */
++            ACPI_MOVE_32_TO_32(&tmp.Ascii, Next->Name.Ascii);
+             sprintf (MsgBuffer, "Name is within method [%4.4s]",
+-                Next->Name.Ascii);
++                tmp.Ascii);
+             AslError (ASL_REMARK, ASL_MSG_NOT_REFERENCED,
+                 LkGetNameOp (Node->Op), MsgBuffer);
+             return (AE_OK);

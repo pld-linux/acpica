@@ -1,0 +1,35 @@
+diff -Naur acpica/tests/aapits/Makefile acpica-patch/tests/aapits/Makefile
+--- acpica/tests/aapits/Makefile	2014-11-07 10:48:14.000000000 -0700
++++ acpica-patch/tests/aapits/Makefile	2014-11-17 18:32:45.816167012 -0700
+@@ -16,6 +16,7 @@
+ 	atosxfwrap.c \
+ 	osunixxf.c \
+ 	../../source/common/ahids.c \
++	../../source/common/ahuuids.c \
+ 	../../source/common/cmfsize.c \
+ 	../../source/common/getopt.c \
+ 	../../source/components/hardware/hwtimer.c \
+@@ -45,6 +46,7 @@
+ 	../../source/components/disassembler/dmresrcs.c \
+ 	../../source/components/disassembler/dmutils.c \
+ 	../../source/components/disassembler/dmwalk.c \
++	../../source/components/disassembler/dmcstyle.c \
+ 	../../source/components/events/evevent.c \
+ 	../../source/components/events/evgpe.c \
+ 	../../source/components/events/evgpeblk.c \
+@@ -174,6 +176,7 @@
+ 	../../source/components/utilities/utexcep.c \
+ 	../../source/components/utilities/utfileio.c \
+ 	../../source/components/utilities/utglobal.c \
++	../../source/components/utilities/uthex.c \
+ 	../../source/components/utilities/utids.c \
+ 	../../source/components/utilities/utinit.c \
+ 	../../source/components/utilities/utlock.c \
+@@ -189,6 +192,7 @@
+ 	../../source/components/utilities/utstate.c \
+ 	../../source/components/utilities/utstring.c \
+ 	../../source/components/utilities/uttrack.c \
++	../../source/components/utilities/utuuid.c \
+ 	../../source/components/utilities/utxface.c \
+ 	../../source/components/utilities/utxferror.c \
+ 	../../source/components/utilities/utxfinit.c \
