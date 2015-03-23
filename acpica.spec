@@ -1,3 +1,7 @@
+#
+# Conditional build:
+%bcond_with	tests		# build without tests
+
 Summary:	ACPI Component Architecture - an assembler and disassembler for DSDT tables
 Summary(pl.UTF-8):	ACPI CA - asembler i disasembler dla tablic DSDT
 Name:		acpica
@@ -46,11 +50,45 @@ tar -x --strip-components=1 -f %{SOURCE1}
 %patch7 -p1
 
 %build
-%{__make} \
-	HOST=_LINUX \
-	CC="%{__cc}" \
-	OPT_CFLAGS="%{rpmcflags}" \
+%define	makeopts \\\
+	HOST=_LINUX \\\
+	CC="%{__cc}" \\\
+	OPT_CFLAGS="%{rpmcflags}" \\\
 	OPT_LDFLAGS="%{rpmcflags} %{rpmldflags}"
+
+%{__make} %{makeopts}
+
+%if %{with tests}
+%{__make} %{makeopts} -C tests/aapits
+%{__make} %{makeopts} -C tests/aapits/asl \
+	ASL=$(pwd)/generate/unix/bin/iasl
+%{__make} %{makeopts} -C tests/templates
+
+cd tests
+
+# ASL tests
+./aslts.sh # relies on non-zero exit
+[ $? -eq 0 ] || exit 1
+
+# API tests
+cd aapits/bin
+./aapitsrun
+[ $? -eq 0 ] || exit 1
+cd ../..
+
+# misc tests
+#./run-misc-tests.sh $RPM_BUILD_ROOT%{_bindir} %{version}
+
+# Template tests
+cd templates
+if [ -f diff.log ]; then
+	if [ -s diff.log ]; then
+		# implies errors occurred
+		exit 1
+	fi
+fi
+cd ..
+%endif
 
 %install
 rm -rf $RPM_BUILD_ROOT
@@ -62,7 +100,7 @@ rm -rf $RPM_BUILD_ROOT
 
 %files
 %defattr(644,root,root,755)
-%doc changes.txt
+%doc changes.txt source/compiler/new_table.txt
 %attr(755,root,root) %{_bindir}/acpibin
 %attr(755,root,root) %{_bindir}/acpidump
 %attr(755,root,root) %{_bindir}/acpiexec
