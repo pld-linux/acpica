@@ -1,7 +1,28 @@
-diff -up acpica-unix2-20140424/source/compiler/aslcodegen.c.debian-big_endian acpica-unix2-20140424/source/compiler/aslcodegen.c
---- acpica-unix2-20140424/source/compiler/aslcodegen.c.debian-big_endian	2014-04-24 11:48:59.000000000 -0400
-+++ acpica-unix2-20140424/source/compiler/aslcodegen.c	2014-06-06 20:43:34.711825238 -0400
-@@ -246,16 +246,12 @@ CgWriteAmlOpcode (
+Re-use a patch originally created for Debian to enable big-endian
+
+From: Al Stone <ahs3@redhat.com>
+
+support
+---
+ source/compiler/aslcodegen.c      |  109 ++++++++++++++++++------------
+ source/compiler/aslopcodes.c      |    4 +
+ source/compiler/aslrestype1.c     |   68 +++++++++++++------
+ source/compiler/aslrestype1i.c    |   38 +++++++---
+ source/compiler/aslrestype2.c     |   25 ++++---
+ source/compiler/aslrestype2d.c    |  134 +++++++++++++++++++++----------------
+ source/compiler/aslrestype2e.c    |   39 +++++++----
+ source/compiler/aslrestype2q.c    |  117 +++++++++++++++++++++-----------
+ source/compiler/aslrestype2s.c    |   86 +++++++++++++++++-------
+ source/compiler/aslrestype2w.c    |  127 +++++++++++++++++++++--------------
+ source/include/acmacros.h         |   15 +++-
+ source/include/platform/aclinux.h |    8 ++
+ 12 files changed, 487 insertions(+), 283 deletions(-)
+
+Index: acpica-unix2-20170224/source/compiler/aslcodegen.c
+===================================================================
+--- acpica-unix2-20170224.orig/source/compiler/aslcodegen.c
++++ acpica-unix2-20170224/source/compiler/aslcodegen.c
+@@ -238,16 +238,12 @@ CgWriteAmlOpcode (
      ACPI_PARSE_OBJECT       *Op)
  {
      UINT8                   PkgLenFirstByte;
@@ -24,7 +45,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslcodegen.c.debian-big_endian ac
  
      /* We expect some DEFAULT_ARGs, just ignore them */
  
-@@ -278,51 +265,52 @@ CgWriteAmlOpcode (
+@@ -280,51 +276,52 @@ CgWriteAmlOpcode (
  
          /* Special opcodes for within a field definition */
  
@@ -88,7 +109,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslcodegen.c.debian-big_endian ac
          break;
      }
  
-@@ -333,8 +322,8 @@ CgWriteAmlOpcode (
+@@ -335,8 +332,8 @@ CgWriteAmlOpcode (
          if (Op->Asl.AmlPkgLenBytes == 1)
          {
              /* Simplest case -- no bytes to follow, just write the count */
@@ -99,7 +120,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslcodegen.c.debian-big_endian ac
          }
          else if (Op->Asl.AmlPkgLenBytes != 0)
          {
-@@ -344,7 +333,7 @@ CgWriteAmlOpcode (
+@@ -346,7 +343,7 @@ CgWriteAmlOpcode (
               */
              PkgLenFirstByte = (UINT8)
                  (((UINT32) (Op->Asl.AmlPkgLenBytes - 1) << 6) |
@@ -108,15 +129,17 @@ diff -up acpica-unix2-20140424/source/compiler/aslcodegen.c.debian-big_endian ac
  
              CgLocalWriteAmlData (Op, &PkgLenFirstByte, 1);
  
-@@ -352,37 +341,44 @@ CgWriteAmlOpcode (
+@@ -354,39 +351,47 @@ CgWriteAmlOpcode (
               * Shift the length over by the 4 bits we just stuffed
               * in the first byte
               */
 -            PkgLen.Len >>= 4;
 +            PkgLen >>= 4;
  
-             /* Now we can write the remaining bytes - either 1, 2, or 3 bytes */
--
+             /*
+              * Now we can write the remaining bytes -
+              * either 1, 2, or 3 bytes
+              */
 -            for (i = 0; i < (UINT32) (Op->Asl.AmlPkgLenBytes - 1); i++)
 +            Byte = ACPI_LOBYTE(PkgLen);
 +            CgLocalWriteAmlData (Op, &Byte, 1);
@@ -166,15 +189,15 @@ diff -up acpica-unix2-20140424/source/compiler/aslcodegen.c.debian-big_endian ac
          break;
  
      case AML_STRING_OP:
-@@ -416,6 +412,7 @@ CgWriteTableHeader (
+@@ -420,6 +425,7 @@ CgWriteTableHeader (
      ACPI_PARSE_OBJECT       *Op)
  {
      ACPI_PARSE_OBJECT       *Child;
-+    UINT32 DWord;
++    UINT32                  DWord;
+     UINT32                  CommentLength;
+     ACPI_COMMENT_NODE       *Current;
  
- 
-     /* AML filename */
-@@ -452,7 +449,7 @@ CgWriteTableHeader (
+@@ -473,7 +479,7 @@ CgWriteTableHeader (
      /* OEM Revision */
  
      Child = Child->Asl.Next;
@@ -183,22 +206,24 @@ diff -up acpica-unix2-20140424/source/compiler/aslcodegen.c.debian-big_endian ac
  
      /* Compiler ID */
  
-@@ -460,11 +457,12 @@ CgWriteTableHeader (
+@@ -481,12 +487,13 @@ CgWriteTableHeader (
  
      /* Compiler version */
  
--    TableHeader.AslCompilerRevision = ASL_REVISION;
-+    DWord = ASL_REVISION;
+-    TableHeader.AslCompilerRevision = ACPI_CA_VERSION;
++    DWord = ACPI_CA_VERSION;
 +    ACPI_MOVE_32_TO_32(&TableHeader.AslCompilerRevision, &DWord);
  
      /* Table length. Checksum zero for now, will rewrite later */
  
--    TableHeader.Length   = Gbl_TableLength;
-+    ACPI_MOVE_32_TO_32(&TableHeader.Length, &Gbl_TableLength);
-     TableHeader.Checksum = 0;
+-    TableHeader.Length = sizeof (ACPI_TABLE_HEADER) +
+-        Op->Asl.AmlSubtreeLength;
++    DWord = sizeof (ACPI_TABLE_HEADER) + Op->Asl.AmlSubtreeLength;
++    ACPI_MOVE_32_TO_32(&TableHeader.Length, &DWord);
  
-     CgLocalWriteAmlData (Op, &TableHeader, sizeof (ACPI_TABLE_HEADER));
-@@ -528,7 +526,10 @@ CgWriteNode (
+     /* Calculate the comment lengths for this definition block parseOp */
+ 
+@@ -643,7 +650,10 @@ CgWriteNode (
      ACPI_PARSE_OBJECT       *Op)
  {
      ASL_RESOURCE_NODE       *Rnode;
@@ -208,9 +233,9 @@ diff -up acpica-unix2-20140424/source/compiler/aslcodegen.c.debian-big_endian ac
 +    UINT32                  DWord;
 +    UINT64                  QWord;
  
-     /* Always check for DEFAULT_ARG and other "Noop" nodes */
-     /* TBD: this may not be the best place for this check */
-@@ -546,13 +547,24 @@ CgWriteNode (
+     /* Write all comments here. */
+     if (Gbl_CaptureComments)
+@@ -672,13 +682,24 @@ CgWriteNode (
      switch (Op->Asl.AmlOpcode)
      {
      case AML_RAW_DATA_BYTE:
@@ -238,10 +263,11 @@ diff -up acpica-unix2-20140424/source/compiler/aslcodegen.c.debian-big_endian ac
  
      case AML_RAW_DATA_BUFFER:
  
-diff -up acpica-unix2-20140424/source/compiler/aslopcodes.c.debian-big_endian acpica-unix2-20140424/source/compiler/aslopcodes.c
---- acpica-unix2-20140424/source/compiler/aslopcodes.c.debian-big_endian	2014-04-24 11:48:59.000000000 -0400
-+++ acpica-unix2-20140424/source/compiler/aslopcodes.c	2014-06-06 20:43:34.711825238 -0400
-@@ -531,6 +479,7 @@ OpcDoUnicode (
+Index: acpica-unix2-20170224/source/compiler/aslopcodes.c
+===================================================================
+--- acpica-unix2-20170224.orig/source/compiler/aslopcodes.c
++++ acpica-unix2-20170224/source/compiler/aslopcodes.c
+@@ -485,6 +485,7 @@ OpcDoUnicode (
      UINT32                  i;
      UINT8                   *AsciiString;
      UINT16                  *UnicodeString;
@@ -249,7 +275,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslopcodes.c.debian-big_endian ac
      ACPI_PARSE_OBJECT       *BufferLengthOp;
  
  
-@@ -557,7 +505,8 @@ OpcDoUnicode (
+@@ -511,7 +512,8 @@ OpcDoUnicode (
  
      for (i = 0; i < Count; i++)
      {
@@ -259,10 +285,11 @@ diff -up acpica-unix2-20140424/source/compiler/aslopcodes.c.debian-big_endian ac
      }
  
      /*
-diff -up acpica-unix2-20140424/source/compiler/aslrestype1.c.debian-big_endian acpica-unix2-20140424/source/compiler/aslrestype1.c
---- acpica-unix2-20140424/source/compiler/aslrestype1.c.debian-big_endian	2014-04-24 11:49:00.000000000 -0400
-+++ acpica-unix2-20140424/source/compiler/aslrestype1.c	2014-06-06 20:43:34.711825238 -0400
-@@ -143,6 +148,11 @@ RsDoMemory24Descriptor (
+Index: acpica-unix2-20170224/source/compiler/aslrestype1.c
+===================================================================
+--- acpica-unix2-20170224.orig/source/compiler/aslrestype1.c
++++ acpica-unix2-20170224/source/compiler/aslrestype1.c
+@@ -142,6 +142,11 @@ RsDoMemory24Descriptor (
      ACPI_PARSE_OBJECT       *LengthOp = NULL;
      ASL_RESOURCE_NODE       *Rnode;
      UINT32                  CurrentByteOffset;
@@ -274,17 +301,17 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype1.c.debian-big_endian a
      UINT32                  i;
  
  
-@@ -152,7 +153,8 @@ RsDoMemory24Descriptor (
+@@ -151,7 +156,8 @@ RsDoMemory24Descriptor (
  
      Descriptor = Rnode->Buffer;
-     Descriptor->Memory24.DescriptorType  = ACPI_RESOURCE_NAME_MEMORY24;
+     Descriptor->Memory24.DescriptorType = ACPI_RESOURCE_NAME_MEMORY24;
 -    Descriptor->Memory24.ResourceLength = 9;
 +    ResourceLength = 9;
 +    ACPI_MOVE_16_TO_16(&Descriptor->Memory24.ResourceLength, &ResourceLength);
  
      /* Process all child initialization nodes */
  
-@@ -169,7 +169,7 @@ RsDoMemory24Descriptor (
+@@ -168,7 +174,7 @@ RsDoMemory24Descriptor (
  
          case 1: /* Min Address */
  
@@ -293,7 +320,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype1.c.debian-big_endian a
              RsCreateWordField (InitializerOp, ACPI_RESTAG_MINADDR,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (Memory24.Minimum));
              MinOp = InitializerOp;
-@@ -177,7 +177,7 @@ RsDoMemory24Descriptor (
+@@ -176,7 +182,7 @@ RsDoMemory24Descriptor (
  
          case 2: /* Max Address */
  
@@ -302,7 +329,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype1.c.debian-big_endian a
              RsCreateWordField (InitializerOp, ACPI_RESTAG_MAXADDR,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (Memory24.Maximum));
              MaxOp = InitializerOp;
-@@ -185,14 +185,14 @@ RsDoMemory24Descriptor (
+@@ -184,14 +190,14 @@ RsDoMemory24Descriptor (
  
          case 3: /* Alignment */
  
@@ -319,7 +346,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype1.c.debian-big_endian a
              RsCreateWordField (InitializerOp, ACPI_RESTAG_LENGTH,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (Memory24.AddressLength));
              LengthOp = InitializerOp;
-@@ -215,12 +220,17 @@ RsDoMemory24Descriptor (
+@@ -214,12 +220,17 @@ RsDoMemory24Descriptor (
      /* Validate the Min/Max/Len/Align values (Alignment==0 means 64K) */
  
      RsSmallAddressCheck (ACPI_RESOURCE_NAME_MEMORY24,
@@ -341,7 +368,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype1.c.debian-big_endian a
      return (Rnode);
  }
  
-@@ -249,6 +254,11 @@ RsDoMemory32Descriptor (
+@@ -248,6 +259,11 @@ RsDoMemory32Descriptor (
      ACPI_PARSE_OBJECT       *AlignOp = NULL;
      ASL_RESOURCE_NODE       *Rnode;
      UINT32                  CurrentByteOffset;
@@ -353,17 +380,17 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype1.c.debian-big_endian a
      UINT32                  i;
  
  
-@@ -258,7 +259,8 @@ RsDoMemory32Descriptor (
+@@ -257,7 +273,8 @@ RsDoMemory32Descriptor (
  
      Descriptor = Rnode->Buffer;
-     Descriptor->Memory32.DescriptorType  = ACPI_RESOURCE_NAME_MEMORY32;
+     Descriptor->Memory32.DescriptorType = ACPI_RESOURCE_NAME_MEMORY32;
 -    Descriptor->Memory32.ResourceLength = 17;
 +    ResourceLength = 17;
 +    ACPI_MOVE_16_TO_16(&Descriptor->Memory32.ResourceLength, &ResourceLength);
  
      /* Process all child initialization nodes */
  
-@@ -275,7 +275,7 @@ RsDoMemory32Descriptor (
+@@ -274,7 +291,7 @@ RsDoMemory32Descriptor (
  
          case 1:  /* Min Address */
  
@@ -372,7 +399,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype1.c.debian-big_endian a
              RsCreateDwordField (InitializerOp, ACPI_RESTAG_MINADDR,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (Memory32.Minimum));
              MinOp = InitializerOp;
-@@ -283,7 +283,7 @@ RsDoMemory32Descriptor (
+@@ -282,7 +299,7 @@ RsDoMemory32Descriptor (
  
          case 2: /* Max Address */
  
@@ -381,7 +408,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype1.c.debian-big_endian a
              RsCreateDwordField (InitializerOp, ACPI_RESTAG_MAXADDR,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (Memory32.Maximum));
              MaxOp = InitializerOp;
-@@ -291,7 +291,7 @@ RsDoMemory32Descriptor (
+@@ -290,7 +307,7 @@ RsDoMemory32Descriptor (
  
          case 3: /* Alignment */
  
@@ -390,7 +417,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype1.c.debian-big_endian a
              RsCreateDwordField (InitializerOp, ACPI_RESTAG_ALIGNMENT,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (Memory32.Alignment));
              AlignOp = InitializerOp;
-@@ -299,7 +299,7 @@ RsDoMemory32Descriptor (
+@@ -298,7 +315,7 @@ RsDoMemory32Descriptor (
  
          case 4: /* Length */
  
@@ -399,7 +426,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype1.c.debian-big_endian a
              RsCreateDwordField (InitializerOp, ACPI_RESTAG_LENGTH,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (Memory32.AddressLength));
              LengthOp = InitializerOp;
-@@ -322,12 +327,17 @@ RsDoMemory32Descriptor (
+@@ -321,12 +338,17 @@ RsDoMemory32Descriptor (
      /* Validate the Min/Max/Len/Align values */
  
      RsSmallAddressCheck (ACPI_RESOURCE_NAME_MEMORY32,
@@ -421,7 +448,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype1.c.debian-big_endian a
      return (Rnode);
  }
  
-@@ -352,6 +353,7 @@ RsDoMemory32FixedDescriptor (
+@@ -351,6 +373,7 @@ RsDoMemory32FixedDescriptor (
      ACPI_PARSE_OBJECT       *InitializerOp;
      ASL_RESOURCE_NODE       *Rnode;
      UINT32                  CurrentByteOffset;
@@ -429,17 +456,17 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype1.c.debian-big_endian a
      UINT32                  i;
  
  
-@@ -361,7 +362,8 @@ RsDoMemory32FixedDescriptor (
+@@ -360,7 +383,8 @@ RsDoMemory32FixedDescriptor (
  
      Descriptor = Rnode->Buffer;
-     Descriptor->FixedMemory32.DescriptorType  = ACPI_RESOURCE_NAME_FIXED_MEMORY32;
+     Descriptor->FixedMemory32.DescriptorType = ACPI_RESOURCE_NAME_FIXED_MEMORY32;
 -    Descriptor->FixedMemory32.ResourceLength = 9;
 +    ResourceLength = 9;
 +    ACPI_MOVE_16_TO_16(&Descriptor->FixedMemory32.ResourceLength, &ResourceLength);
  
      /* Process all child initialization nodes */
  
-@@ -378,14 +380,16 @@ RsDoMemory32FixedDescriptor (
+@@ -377,14 +401,16 @@ RsDoMemory32FixedDescriptor (
  
          case 1: /* Address */
  
@@ -458,10 +485,11 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype1.c.debian-big_endian a
              RsCreateDwordField (InitializerOp, ACPI_RESTAG_LENGTH,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (FixedMemory32.AddressLength));
              break;
-diff -up acpica-unix2-20140424/source/compiler/aslrestype1i.c.debian-big_endian acpica-unix2-20140424/source/compiler/aslrestype1i.c
---- acpica-unix2-20140424/source/compiler/aslrestype1i.c.debian-big_endian	2014-04-24 11:49:00.000000000 -0400
-+++ acpica-unix2-20140424/source/compiler/aslrestype1i.c	2014-06-06 20:43:34.711825238 -0400
-@@ -198,6 +200,8 @@ RsDoFixedDmaDescriptor (
+Index: acpica-unix2-20170224/source/compiler/aslrestype1i.c
+===================================================================
+--- acpica-unix2-20170224.orig/source/compiler/aslrestype1i.c
++++ acpica-unix2-20170224/source/compiler/aslrestype1i.c
+@@ -198,6 +198,8 @@ RsDoFixedDmaDescriptor (
      ACPI_PARSE_OBJECT       *InitializerOp;
      ASL_RESOURCE_NODE       *Rnode;
      UINT32                  CurrentByteOffset;
@@ -470,7 +498,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype1i.c.debian-big_endian 
      UINT32                  i;
  
  
-@@ -217,14 +217,14 @@ RsDoFixedDmaDescriptor (
+@@ -217,14 +219,14 @@ RsDoFixedDmaDescriptor (
          {
          case 0: /* DMA Request Lines [WORD] (_DMA) */
  
@@ -487,7 +515,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype1i.c.debian-big_endian 
              RsCreateWordField (InitializerOp, ACPI_RESTAG_DMATYPE,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (FixedDma.Channels));
              break;
-@@ -249,6 +252,9 @@ RsDoFixedDmaDescriptor (
+@@ -249,6 +251,9 @@ RsDoFixedDmaDescriptor (
          InitializerOp = RsCompleteNodeAndGetNext (InitializerOp);
      }
  
@@ -497,7 +525,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype1i.c.debian-big_endian 
      return (Rnode);
  }
  
-@@ -274,6 +275,7 @@ RsDoFixedIoDescriptor (
+@@ -274,6 +279,7 @@ RsDoFixedIoDescriptor (
      ACPI_PARSE_OBJECT       *AddressOp = NULL;
      ASL_RESOURCE_NODE       *Rnode;
      UINT32                  CurrentByteOffset;
@@ -505,7 +533,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype1i.c.debian-big_endian 
      UINT32                  i;
  
  
-@@ -293,8 +292,7 @@ RsDoFixedIoDescriptor (
+@@ -293,8 +299,7 @@ RsDoFixedIoDescriptor (
          {
          case 0: /* Base Address */
  
@@ -515,7 +543,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype1i.c.debian-big_endian 
              RsCreateWordField (InitializerOp, ACPI_RESTAG_BASEADDRESS,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (FixedIo.Address));
              AddressOp = InitializerOp;
-@@ -324,11 +326,13 @@ RsDoFixedIoDescriptor (
+@@ -324,11 +329,13 @@ RsDoFixedIoDescriptor (
  
      /* Error checks */
  
@@ -530,7 +558,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype1i.c.debian-big_endian 
      return (Rnode);
  }
  
-@@ -357,6 +359,8 @@ RsDoIoDescriptor (
+@@ -357,6 +364,8 @@ RsDoIoDescriptor (
      ACPI_PARSE_OBJECT       *AlignOp = NULL;
      ASL_RESOURCE_NODE       *Rnode;
      UINT32                  CurrentByteOffset;
@@ -539,7 +567,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype1i.c.debian-big_endian 
      UINT32                  i;
  
  
-@@ -383,8 +382,7 @@ RsDoIoDescriptor (
+@@ -383,8 +392,7 @@ RsDoIoDescriptor (
  
          case 1:  /* Min Address */
  
@@ -549,7 +577,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype1i.c.debian-big_endian 
              RsCreateWordField (InitializerOp, ACPI_RESTAG_MINADDR,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (Io.Minimum));
              MinOp = InitializerOp;
-@@ -392,8 +391,7 @@ RsDoIoDescriptor (
+@@ -392,8 +400,7 @@ RsDoIoDescriptor (
  
          case 2: /* Max Address */
  
@@ -559,7 +587,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype1i.c.debian-big_endian 
              RsCreateWordField (InitializerOp, ACPI_RESTAG_MAXADDR,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (Io.Maximum));
              MaxOp = InitializerOp;
-@@ -434,12 +437,15 @@ RsDoIoDescriptor (
+@@ -434,12 +441,15 @@ RsDoIoDescriptor (
      /* Validate the Min/Max/Len/Align values */
  
      RsSmallAddressCheck (ACPI_RESOURCE_NAME_IO,
@@ -577,7 +605,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype1i.c.debian-big_endian 
      return (Rnode);
  }
  
-@@ -559,9 +559,9 @@ RsDoIrqDescriptor (
+@@ -559,9 +569,9 @@ RsDoIrqDescriptor (
          InitializerOp = RsCompleteNodeAndGetNext (InitializerOp);
      }
  
@@ -589,7 +617,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype1i.c.debian-big_endian 
      return (Rnode);
  }
  
-@@ -660,6 +660,6 @@ RsDoIrqNoFlagsDescriptor (
+@@ -660,6 +670,6 @@ RsDoIrqNoFlagsDescriptor (
  
      /* Now we can set the interrupt mask */
  
@@ -597,10 +625,11 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype1i.c.debian-big_endian 
 +    ACPI_MOVE_16_TO_16(&Descriptor->Irq.IrqMask, &IrqMask);
      return (Rnode);
  }
-diff -up acpica-unix2-20140424/source/compiler/aslrestype2.c.debian-big_endian acpica-unix2-20140424/source/compiler/aslrestype2.c
---- acpica-unix2-20140424/source/compiler/aslrestype2.c.debian-big_endian	2014-04-24 11:49:00.000000000 -0400
-+++ acpica-unix2-20140424/source/compiler/aslrestype2.c	2014-06-06 20:43:34.711825238 -0400
-@@ -76,6 +77,7 @@ RsDoGeneralRegisterDescriptor (
+Index: acpica-unix2-20170224/source/compiler/aslrestype2.c
+===================================================================
+--- acpica-unix2-20170224.orig/source/compiler/aslrestype2.c
++++ acpica-unix2-20170224/source/compiler/aslrestype2.c
+@@ -76,6 +76,7 @@ RsDoGeneralRegisterDescriptor (
      ACPI_PARSE_OBJECT       *InitializerOp;
      ASL_RESOURCE_NODE       *Rnode;
      UINT32                  CurrentByteOffset;
@@ -608,7 +637,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2.c.debian-big_endian a
      UINT32                  i;
  
  
-@@ -85,7 +87,9 @@ RsDoGeneralRegisterDescriptor (
+@@ -85,7 +86,9 @@ RsDoGeneralRegisterDescriptor (
  
      Descriptor = Rnode->Buffer;
      Descriptor->GenericReg.DescriptorType = ACPI_RESOURCE_NAME_GENERIC_REGISTER;
@@ -619,7 +648,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2.c.debian-big_endian a
  
      /* Process all child initialization nodes */
  
-@@ -116,7 +117,8 @@ RsDoGeneralRegisterDescriptor (
+@@ -116,7 +119,8 @@ RsDoGeneralRegisterDescriptor (
  
          case 3: /* Register Address */
  
@@ -629,7 +658,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2.c.debian-big_endian a
              RsCreateQwordField (InitializerOp, ACPI_RESTAG_ADDRESS,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (GenericReg.Address));
              break;
-@@ -171,6 +172,7 @@ RsDoInterruptDescriptor (
+@@ -177,6 +181,7 @@ RsDoInterruptDescriptor (
      AML_RESOURCE            *Rover = NULL;
      ACPI_PARSE_OBJECT       *InitializerOp;
      ASL_RESOURCE_NODE       *Rnode;
@@ -637,7 +666,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2.c.debian-big_endian a
      UINT16                  StringLength = 0;
      UINT32                  OptionIndex = 0;
      UINT32                  CurrentByteOffset;
-@@ -219,7 +219,7 @@ RsDoInterruptDescriptor (
+@@ -225,7 +230,7 @@ RsDoInterruptDescriptor (
       * Initial descriptor length -- may be enlarged if there are
       * optional fields present
       */
@@ -646,7 +675,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2.c.debian-big_endian a
      Descriptor->ExtendedIrq.InterruptCount  = 0;
  
      Rover = ACPI_CAST_PTR (AML_RESOURCE,
-@@ -327,10 +328,11 @@ RsDoInterruptDescriptor (
+@@ -333,10 +338,11 @@ RsDoInterruptDescriptor (
  
              /* Save the integer and move pointer to the next one */
  
@@ -660,7 +689,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2.c.debian-big_endian a
  
              /* Case 7: First interrupt number in list */
  
-@@ -366,7 +366,7 @@ RsDoInterruptDescriptor (
+@@ -372,7 +378,7 @@ RsDoInterruptDescriptor (
      {
          Rover->ByteItem = ResSourceIndex;
          Rover = ACPI_ADD_PTR (AML_RESOURCE, &(Rover->ByteItem), 1);
@@ -669,7 +698,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2.c.debian-big_endian a
      }
  
      /* Add optional ResSource string if present */
-@@ -378,13 +379,14 @@ RsDoInterruptDescriptor (
+@@ -384,14 +390,15 @@ RsDoInterruptDescriptor (
          Rover = ACPI_ADD_PTR (
                      AML_RESOURCE, &(Rover->ByteItem), StringLength);
  
@@ -678,27 +707,29 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2.c.debian-big_endian a
 +        ResourceLength = (UINT16) (ResourceLength + StringLength);
      }
  
-     Rnode->BufferLength = (ASL_RESDESC_OFFSET (ExtendedIrq.Interrupts[0]) -
-                            ASL_RESDESC_OFFSET (ExtendedIrq.DescriptorType))
-                            + OptionIndex + StringLength;
+     Rnode->BufferLength =
+         (ASL_RESDESC_OFFSET (ExtendedIrq.Interrupts[0]) -
+         ASL_RESDESC_OFFSET (ExtendedIrq.DescriptorType))
+         + OptionIndex + StringLength;
 +    ACPI_MOVE_16_TO_16(&Descriptor->ExtendedIrq.ResourceLength,
 +		    &ResourceLength);
      return (Rnode);
  }
  
-@@ -432,7 +432,7 @@ RsDoVendorLargeDescriptor (
+@@ -439,7 +446,7 @@ RsDoVendorLargeDescriptor (
  
      Descriptor = Rnode->Buffer;
-     Descriptor->VendorLarge.DescriptorType  = ACPI_RESOURCE_NAME_VENDOR_LARGE;
+     Descriptor->VendorLarge.DescriptorType = ACPI_RESOURCE_NAME_VENDOR_LARGE;
 -    Descriptor->VendorLarge.ResourceLength = (UINT16) i;
 +    ACPI_MOVE_32_TO_16(&Descriptor->VendorLarge.ResourceLength, &i);
  
      /* Point to end-of-descriptor for vendor data */
  
-diff -up acpica-unix2-20140424/source/compiler/aslrestype2d.c.debian-big_endian acpica-unix2-20140424/source/compiler/aslrestype2d.c
---- acpica-unix2-20140424/source/compiler/aslrestype2d.c.debian-big_endian	2014-04-24 11:49:00.000000000 -0400
-+++ acpica-unix2-20140424/source/compiler/aslrestype2d.c	2014-06-06 20:43:34.721825238 -0400
-@@ -79,7 +85,13 @@ RsDoDwordIoDescriptor (
+Index: acpica-unix2-20170224/source/compiler/aslrestype2d.c
+===================================================================
+--- acpica-unix2-20170224.orig/source/compiler/aslrestype2d.c
++++ acpica-unix2-20170224/source/compiler/aslrestype2d.c
+@@ -79,7 +79,13 @@ RsDoDwordIoDescriptor (
      ACPI_PARSE_OBJECT       *GranOp = NULL;
      ASL_RESOURCE_NODE       *Rnode;
      UINT16                  StringLength = 0;
@@ -712,7 +743,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2d.c.debian-big_endian 
      UINT8                   *OptionalFields;
      UINT32                  CurrentByteOffset;
      UINT32                  i;
-@@ -102,8 +101,7 @@ RsDoDwordIoDescriptor (
+@@ -102,8 +108,7 @@ RsDoDwordIoDescriptor (
       * optional fields present
       */
      OptionalFields = ((UINT8 *) Descriptor) + sizeof (AML_RESOURCE_ADDRESS32);
@@ -722,7 +753,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2d.c.debian-big_endian 
           sizeof (AML_RESOURCE_LARGE_HEADER));
  
      /* Process all child initialization nodes */
-@@ -147,8 +146,7 @@ RsDoDwordIoDescriptor (
+@@ -147,8 +152,7 @@ RsDoDwordIoDescriptor (
  
          case 5: /* Address Granularity */
  
@@ -732,7 +763,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2d.c.debian-big_endian 
              RsCreateDwordField (InitializerOp, ACPI_RESTAG_GRANULARITY,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (Address32.Granularity));
              GranOp = InitializerOp;
-@@ -156,8 +155,7 @@ RsDoDwordIoDescriptor (
+@@ -156,8 +160,7 @@ RsDoDwordIoDescriptor (
  
          case 6: /* Address Min */
  
@@ -742,7 +773,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2d.c.debian-big_endian 
              RsCreateDwordField (InitializerOp, ACPI_RESTAG_MINADDR,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (Address32.Minimum));
              MinOp = InitializerOp;
-@@ -165,8 +164,7 @@ RsDoDwordIoDescriptor (
+@@ -165,8 +168,7 @@ RsDoDwordIoDescriptor (
  
          case 7: /* Address Max */
  
@@ -752,7 +783,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2d.c.debian-big_endian 
              RsCreateDwordField (InitializerOp, ACPI_RESTAG_MAXADDR,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (Address32.Maximum));
              MaxOp = InitializerOp;
-@@ -174,16 +172,14 @@ RsDoDwordIoDescriptor (
+@@ -174,16 +176,14 @@ RsDoDwordIoDescriptor (
  
          case 8: /* Translation Offset */
  
@@ -780,7 +811,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2d.c.debian-big_endian 
                  ResSourceIndex = TRUE;
              }
              break;
-@@ -211,8 +210,7 @@ RsDoDwordIoDescriptor (
+@@ -211,8 +211,7 @@ RsDoDwordIoDescriptor (
                  {
                      /* Found a valid ResourceSource */
  
@@ -790,7 +821,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2d.c.debian-big_endian 
  
                      strcpy ((char *)
                          &OptionalFields[OptionIndex],
-@@ -272,13 +279,20 @@ RsDoDwordIoDescriptor (
+@@ -272,13 +271,20 @@ RsDoDwordIoDescriptor (
      /* Validate the Min/Max/Len/Gran values */
  
      RsLargeAddressCheck (
@@ -829,7 +860,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2d.c.debian-big_endian 
      UINT32                  CurrentByteOffset;
      UINT32                  i;
      BOOLEAN                 ResSourceIndex = FALSE;
-@@ -332,11 +330,9 @@ RsDoDwordMemoryDescriptor (
+@@ -332,11 +344,9 @@ RsDoDwordMemoryDescriptor (
       * optional fields present
       */
      OptionalFields = ((UINT8 *) Descriptor) + sizeof (AML_RESOURCE_ADDRESS32);
@@ -842,7 +873,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2d.c.debian-big_endian 
      /* Process all child initialization nodes */
  
      for (i = 0; InitializerOp; i++)
-@@ -385,8 +384,7 @@ RsDoDwordMemoryDescriptor (
+@@ -385,8 +395,7 @@ RsDoDwordMemoryDescriptor (
  
          case 6: /* Address Granularity */
  
@@ -852,7 +883,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2d.c.debian-big_endian 
              RsCreateDwordField (InitializerOp, ACPI_RESTAG_GRANULARITY,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (Address32.Granularity));
              GranOp = InitializerOp;
-@@ -394,8 +3926,7 @@ RsDoDwordMemoryDescriptor (
+@@ -394,8 +403,7 @@ RsDoDwordMemoryDescriptor (
  
          case 7: /* Min Address */
  
@@ -862,7 +893,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2d.c.debian-big_endian 
              RsCreateDwordField (InitializerOp, ACPI_RESTAG_MINADDR,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (Address32.Minimum));
              MinOp = InitializerOp;
-@@ -403,8 +402,7 @@ RsDoDwordMemoryDescriptor (
+@@ -403,8 +411,7 @@ RsDoDwordMemoryDescriptor (
  
          case 8: /* Max Address */
  
@@ -872,7 +903,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2d.c.debian-big_endian 
              RsCreateDwordField (InitializerOp, ACPI_RESTAG_MAXADDR,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (Address32.Maximum));
              MaxOp = InitializerOp;
-@@ -412,16 +410,14 @@ RsDoDwordMemoryDescriptor (
+@@ -412,16 +419,14 @@ RsDoDwordMemoryDescriptor (
  
          case 9: /* Translation Offset */
  
@@ -891,7 +922,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2d.c.debian-big_endian 
              RsCreateDwordField (InitializerOp, ACPI_RESTAG_LENGTH,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (Address32.AddressLength));
              LengthOp = InitializerOp;
-@@ -433,7 +433,7 @@ RsDoDwordMemoryDescriptor (
+@@ -433,7 +438,7 @@ RsDoDwordMemoryDescriptor (
              {
                  OptionalFields[0] = (UINT8) InitializerOp->Asl.Value.Integer;
                  OptionIndex++;
@@ -900,7 +931,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2d.c.debian-big_endian 
                  ResSourceIndex = TRUE;
              }
              break;
-@@ -445,8 +445,8 @@ RsDoDwordMemoryDescriptor (
+@@ -445,8 +450,8 @@ RsDoDwordMemoryDescriptor (
              {
                  if (StringLength)
                  {
@@ -911,7 +942,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2d.c.debian-big_endian 
  
                      strcpy ((char *)
                          &OptionalFields[OptionIndex],
-@@ -507,13 +514,20 @@ RsDoDwordMemoryDescriptor (
+@@ -507,13 +512,20 @@ RsDoDwordMemoryDescriptor (
      /* Validate the Min/Max/Len/Gran values */
  
      RsLargeAddressCheck (
@@ -936,7 +967,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2d.c.debian-big_endian 
      Rnode->BufferLength = sizeof (AML_RESOURCE_ADDRESS32) +
          OptionIndex + StringLength;
      return (Rnode);
-@@ -545,7 +551,13 @@ RsDoDwordSpaceDescriptor (
+@@ -545,7 +557,13 @@ RsDoDwordSpaceDescriptor (
      ASL_RESOURCE_NODE       *Rnode;
      UINT8                   *OptionalFields;
      UINT16                  StringLength = 0;
@@ -950,7 +981,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2d.c.debian-big_endian 
      UINT32                  CurrentByteOffset;
      UINT32                  i;
      BOOLEAN                 ResSourceIndex = FALSE;
-@@ -566,8 +565,7 @@ RsDoDwordSpaceDescriptor (
+@@ -566,8 +584,7 @@ RsDoDwordSpaceDescriptor (
       * optional fields present
       */
      OptionalFields = ((UINT8 *) Descriptor) + sizeof (AML_RESOURCE_ADDRESS32);
@@ -960,7 +991,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2d.c.debian-big_endian 
           sizeof (AML_RESOURCE_LARGE_HEADER));
  
      /* Process all child initialization nodes */
-@@ -616,8 +615,7 @@ RsDoDwordSpaceDescriptor (
+@@ -616,8 +633,7 @@ RsDoDwordSpaceDescriptor (
  
          case 6: /* Address Granularity */
  
@@ -970,7 +1001,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2d.c.debian-big_endian 
              RsCreateDwordField (InitializerOp, ACPI_RESTAG_GRANULARITY,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (Address32.Granularity));
              GranOp = InitializerOp;
-@@ -625,8 +624,7 @@ RsDoDwordSpaceDescriptor (
+@@ -625,8 +641,7 @@ RsDoDwordSpaceDescriptor (
  
          case 7: /* Min Address */
  
@@ -980,7 +1011,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2d.c.debian-big_endian 
              RsCreateDwordField (InitializerOp, ACPI_RESTAG_MINADDR,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (Address32.Minimum));
              MinOp = InitializerOp;
-@@ -634,8 +633,7 @@ RsDoDwordSpaceDescriptor (
+@@ -634,8 +649,7 @@ RsDoDwordSpaceDescriptor (
  
          case 8: /* Max Address */
  
@@ -990,7 +1021,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2d.c.debian-big_endian 
              RsCreateDwordField (InitializerOp, ACPI_RESTAG_MAXADDR,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (Address32.Maximum));
              MaxOp = InitializerOp;
-@@ -643,16 +641,14 @@ RsDoDwordSpaceDescriptor (
+@@ -643,16 +657,14 @@ RsDoDwordSpaceDescriptor (
  
          case 9: /* Translation Offset */
  
@@ -1009,7 +1040,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2d.c.debian-big_endian 
              RsCreateDwordField (InitializerOp, ACPI_RESTAG_LENGTH,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (Address32.AddressLength));
              LengthOp = InitializerOp;
-@@ -664,7 +664,7 @@ RsDoDwordSpaceDescriptor (
+@@ -664,7 +676,7 @@ RsDoDwordSpaceDescriptor (
              {
                  OptionalFields[0] = (UINT8) InitializerOp->Asl.Value.Integer;
                  OptionIndex++;
@@ -1018,7 +1049,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2d.c.debian-big_endian 
                  ResSourceIndex = TRUE;
              }
              break;
-@@ -676,8 +675,7 @@ RsDoDwordSpaceDescriptor (
+@@ -676,8 +688,7 @@ RsDoDwordSpaceDescriptor (
              {
                  if (StringLength)
                  {
@@ -1028,7 +1059,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2d.c.debian-big_endian 
  
                      strcpy ((char *)
                          &OptionalFields[OptionIndex],
-@@ -724,13 +731,20 @@ RsDoDwordSpaceDescriptor (
+@@ -724,13 +735,20 @@ RsDoDwordSpaceDescriptor (
      /* Validate the Min/Max/Len/Gran values */
  
      RsLargeAddressCheck (
@@ -1053,10 +1084,11 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2d.c.debian-big_endian 
      Rnode->BufferLength = sizeof (AML_RESOURCE_ADDRESS32) +
          OptionIndex + StringLength;
      return (Rnode);
-diff -up acpica-unix2-20140424/source/compiler/aslrestype2e.c.debian-big_endian acpica-unix2-20140424/source/compiler/aslrestype2e.c
---- acpica-unix2-20140424/source/compiler/aslrestype2e.c.debian-big_endian	2014-04-24 11:49:00.000000000 -0400
-+++ acpica-unix2-20140424/source/compiler/aslrestype2e.c	2014-06-06 20:43:34.721825238 -0400
-@@ -78,6 +85,13 @@ RsDoExtendedIoDescriptor (
+Index: acpica-unix2-20170224/source/compiler/aslrestype2e.c
+===================================================================
+--- acpica-unix2-20170224.orig/source/compiler/aslrestype2e.c
++++ acpica-unix2-20170224/source/compiler/aslrestype2e.c
+@@ -78,6 +78,13 @@ RsDoExtendedIoDescriptor (
      ACPI_PARSE_OBJECT       *GranOp = NULL;
      ASL_RESOURCE_NODE       *Rnode;
      UINT16                  StringLength = 0;
@@ -1070,11 +1102,11 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2e.c.debian-big_endian 
      UINT32                  CurrentByteOffset;
      UINT32                  i;
  
-@@ -94,9 +95,10 @@ RsDoExtendedIoDescriptor (
-     Descriptor->ExtAddress64.ResourceType    = ACPI_ADDRESS_TYPE_IO_RANGE;
-     Descriptor->ExtAddress64.RevisionID      = AML_RESOURCE_EXTENDED_ADDRESS_REVISION;
+@@ -94,9 +101,10 @@ RsDoExtendedIoDescriptor (
+     Descriptor->ExtAddress64.ResourceType = ACPI_ADDRESS_TYPE_IO_RANGE;
+     Descriptor->ExtAddress64.RevisionID = AML_RESOURCE_EXTENDED_ADDRESS_REVISION;
  
--    Descriptor->ExtAddress64.ResourceLength  = (UINT16)
+-    Descriptor->ExtAddress64.ResourceLength = (UINT16)
 -        (sizeof (AML_RESOURCE_EXTENDED_ADDRESS64) -
 +    ResourceLength  = (UINT16) (sizeof (AML_RESOURCE_EXTENDED_ADDRESS64) -
           sizeof (AML_RESOURCE_LARGE_HEADER));
@@ -1083,7 +1115,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2e.c.debian-big_endian 
  
      /* Process all child initialization nodes */
  
-@@ -139,7 +139,7 @@ RsDoExtendedIoDescriptor (
+@@ -139,7 +147,7 @@ RsDoExtendedIoDescriptor (
  
          case 5: /* Address Granularity */
  
@@ -1092,7 +1124,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2e.c.debian-big_endian 
              RsCreateQwordField (InitializerOp, ACPI_RESTAG_GRANULARITY,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (ExtAddress64.Granularity));
              GranOp = InitializerOp;
-@@ -147,7 +147,7 @@ RsDoExtendedIoDescriptor (
+@@ -147,7 +155,7 @@ RsDoExtendedIoDescriptor (
  
          case 6: /* Address Min */
  
@@ -1101,7 +1133,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2e.c.debian-big_endian 
              RsCreateQwordField (InitializerOp, ACPI_RESTAG_MINADDR,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (ExtAddress64.Minimum));
              MinOp = InitializerOp;
-@@ -155,7 +155,7 @@ RsDoExtendedIoDescriptor (
+@@ -155,7 +163,7 @@ RsDoExtendedIoDescriptor (
  
          case 7: /* Address Max */
  
@@ -1110,7 +1142,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2e.c.debian-big_endian 
              RsCreateQwordField (InitializerOp, ACPI_RESTAG_MAXADDR,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (ExtAddress64.Maximum));
              MaxOp = InitializerOp;
-@@ -163,14 +163,14 @@ RsDoExtendedIoDescriptor (
+@@ -163,14 +171,14 @@ RsDoExtendedIoDescriptor (
  
          case 8: /* Translation Offset */
  
@@ -1127,7 +1159,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2e.c.debian-big_endian 
              RsCreateQwordField (InitializerOp, ACPI_RESTAG_LENGTH,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (ExtAddress64.AddressLength));
              LengthOp = InitializerOp;
-@@ -178,7 +178,7 @@ RsDoExtendedIoDescriptor (
+@@ -178,7 +186,7 @@ RsDoExtendedIoDescriptor (
  
          case 10: /* Type-Specific Attributes */
  
@@ -1136,7 +1168,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2e.c.debian-big_endian 
              RsCreateQwordField (InitializerOp, ACPI_RESTAG_TYPESPECIFICATTRIBUTES,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (ExtAddress64.TypeSpecific));
              break;
-@@ -214,13 +221,20 @@ RsDoExtendedIoDescriptor (
+@@ -214,13 +222,20 @@ RsDoExtendedIoDescriptor (
      /* Validate the Min/Max/Len/Gran values */
  
      RsLargeAddressCheck (
@@ -1161,221 +1193,11 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2e.c.debian-big_endian 
      Rnode->BufferLength = sizeof (AML_RESOURCE_EXTENDED_ADDRESS64) +
          StringLength;
      return (Rnode);
- }
-@@ -254,6 +270,13 @@ RsDoExtendedMemoryDescriptor (
-     ACPI_PARSE_OBJECT       *GranOp = NULL;
-     ASL_RESOURCE_NODE       *Rnode;
-     UINT16                  StringLength = 0;
-+    UINT16                  ResourceLength = 0;
-+    UINT64                  Minimum = 0;
-+    UINT64                  Maximum = 0;
-+    UINT64                  AddressLength = 0;
-+    UINT64                  Granularity = 0;
-+    UINT64                  TranslationOffset = 0;
-+    UINT64                  TypeSpecific = 0;
-     UINT32                  CurrentByteOffset;
-     UINT32                  i;
- 
-@@ -268,9 +291,10 @@ RsDoExtendedMemoryDescriptor (
-     Descriptor->ExtAddress64.ResourceType    = ACPI_ADDRESS_TYPE_MEMORY_RANGE;
-     Descriptor->ExtAddress64.RevisionID      = AML_RESOURCE_EXTENDED_ADDRESS_REVISION;
- 
--    Descriptor->ExtAddress64.ResourceLength  = (UINT16)
--        (sizeof (AML_RESOURCE_EXTENDED_ADDRESS64) -
-+    ResourceLength  = (UINT16) (sizeof (AML_RESOURCE_EXTENDED_ADDRESS64) -
-          sizeof (AML_RESOURCE_LARGE_HEADER));
-+    ACPI_MOVE_16_TO_16(&Descriptor->ExtAddress64.ResourceLength,
-+        &ResourceLength);
- 
-     /* Process all child initialization nodes */
- 
-@@ -320,7 +344,7 @@ RsDoExtendedMemoryDescriptor (
- 
-         case 6: /* Address Granularity */
- 
--            Descriptor->ExtAddress64.Granularity = InitializerOp->Asl.Value.Integer;
-+            Granularity = InitializerOp->Asl.Value.Integer;
-             RsCreateQwordField (InitializerOp, ACPI_RESTAG_GRANULARITY,
-                 CurrentByteOffset + ASL_RESDESC_OFFSET (ExtAddress64.Granularity));
-             GranOp = InitializerOp;
-@@ -328,7 +352,7 @@ RsDoExtendedMemoryDescriptor (
- 
-         case 7: /* Min Address */
- 
--            Descriptor->ExtAddress64.Minimum = InitializerOp->Asl.Value.Integer;
-+            Minimum = InitializerOp->Asl.Value.Integer;
-             RsCreateQwordField (InitializerOp, ACPI_RESTAG_MINADDR,
-                 CurrentByteOffset + ASL_RESDESC_OFFSET (ExtAddress64.Minimum));
-             MinOp = InitializerOp;
-@@ -336,7 +360,7 @@ RsDoExtendedMemoryDescriptor (
- 
-         case 8: /* Max Address */
- 
--            Descriptor->ExtAddress64.Maximum = InitializerOp->Asl.Value.Integer;
-+            Maximum = InitializerOp->Asl.Value.Integer;
-             RsCreateQwordField (InitializerOp, ACPI_RESTAG_MAXADDR,
-                 CurrentByteOffset + ASL_RESDESC_OFFSET (ExtAddress64.Maximum));
-             MaxOp = InitializerOp;
-@@ -344,14 +368,14 @@ RsDoExtendedMemoryDescriptor (
- 
-         case 9: /* Translation Offset */
- 
--            Descriptor->ExtAddress64.TranslationOffset = InitializerOp->Asl.Value.Integer;
-+            TranslationOffset = InitializerOp->Asl.Value.Integer;
-             RsCreateQwordField (InitializerOp, ACPI_RESTAG_TRANSLATION,
-                 CurrentByteOffset + ASL_RESDESC_OFFSET (ExtAddress64.TranslationOffset));
-             break;
- 
-         case 10: /* Address Length */
- 
--            Descriptor->ExtAddress64.AddressLength = InitializerOp->Asl.Value.Integer;
-+            AddressLength = InitializerOp->Asl.Value.Integer;
-             RsCreateQwordField (InitializerOp, ACPI_RESTAG_LENGTH,
-                 CurrentByteOffset + ASL_RESDESC_OFFSET (ExtAddress64.AddressLength));
-             LengthOp = InitializerOp;
-@@ -359,7 +383,7 @@ RsDoExtendedMemoryDescriptor (
- 
-         case 11: /* Type-Specific Attributes */
- 
--            Descriptor->ExtAddress64.TypeSpecific = InitializerOp->Asl.Value.Integer;
-+            TypeSpecific = InitializerOp->Asl.Value.Integer;
-             RsCreateQwordField (InitializerOp, ACPI_RESTAG_TYPESPECIFICATTRIBUTES,
-                 CurrentByteOffset + ASL_RESDESC_OFFSET (ExtAddress64.TypeSpecific));
-             break;
-@@ -396,13 +420,20 @@ RsDoExtendedMemoryDescriptor (
-     /* Validate the Min/Max/Len/Gran values */
- 
-     RsLargeAddressCheck (
--        Descriptor->ExtAddress64.Minimum,
--        Descriptor->ExtAddress64.Maximum,
--        Descriptor->ExtAddress64.AddressLength,
--        Descriptor->ExtAddress64.Granularity,
-+        Minimum,
-+        Maximum,
-+        AddressLength,
-+        Granularity,
-         Descriptor->ExtAddress64.Flags,
-         MinOp, MaxOp, LengthOp, GranOp, Op);
- 
-+    ACPI_MOVE_64_TO_64(&Descriptor->ExtAddress64.Minimum, &Minimum);
-+    ACPI_MOVE_64_TO_64(&Descriptor->ExtAddress64.Maximum, &Maximum);
-+    ACPI_MOVE_64_TO_64(&Descriptor->ExtAddress64.AddressLength, &AddressLength);
-+    ACPI_MOVE_64_TO_64(&Descriptor->ExtAddress64.Granularity, &Granularity);
-+    ACPI_MOVE_64_TO_64(&Descriptor->ExtAddress64.TranslationOffset, &TranslationOffset);
-+    ACPI_MOVE_64_TO_64(&Descriptor->ExtAddress64.TypeSpecific, &TypeSpecific);
-+
-     Rnode->BufferLength = sizeof (AML_RESOURCE_EXTENDED_ADDRESS64) + StringLength;
-     return (Rnode);
- }
-@@ -435,6 +466,13 @@ RsDoExtendedSpaceDescriptor (
-     ACPI_PARSE_OBJECT       *GranOp = NULL;
-     ASL_RESOURCE_NODE       *Rnode;
-     UINT16                  StringLength = 0;
-+    UINT16                  ResourceLength = 0;
-+    UINT64                  Minimum = 0;
-+    UINT64                  Maximum = 0;
-+    UINT64                  AddressLength = 0;
-+    UINT64                  Granularity = 0;
-+    UINT64                  TranslationOffset = 0;
-+    UINT64                  TypeSpecific = 0;
-     UINT32                  i;
- 
- 
-@@ -448,9 +486,10 @@ RsDoExtendedSpaceDescriptor (
-     Descriptor->ExtAddress64.DescriptorType  = ACPI_RESOURCE_NAME_EXTENDED_ADDRESS64;
-     Descriptor->ExtAddress64.RevisionID      = AML_RESOURCE_EXTENDED_ADDRESS_REVISION;
- 
--    Descriptor->ExtAddress64.ResourceLength  = (UINT16)
--        (sizeof (AML_RESOURCE_EXTENDED_ADDRESS64) -
-+    ResourceLength  = (UINT16) (sizeof (AML_RESOURCE_EXTENDED_ADDRESS64) -
-          sizeof (AML_RESOURCE_LARGE_HEADER));
-+    ACPI_MOVE_16_TO_16(&Descriptor->ExtAddress64.ResourceLength,
-+        &ResourceLength);
- 
-     /* Process all child initialization nodes */
- 
-@@ -498,7 +537,7 @@ RsDoExtendedSpaceDescriptor (
- 
-         case 6: /* Address Granularity */
- 
--            Descriptor->ExtAddress64.Granularity = InitializerOp->Asl.Value.Integer;
-+            Granularity = InitializerOp->Asl.Value.Integer;
-             RsCreateQwordField (InitializerOp, ACPI_RESTAG_GRANULARITY,
-                 CurrentByteOffset + ASL_RESDESC_OFFSET (ExtAddress64.Granularity));
-             GranOp = InitializerOp;
-@@ -506,7 +545,7 @@ RsDoExtendedSpaceDescriptor (
- 
-         case 7: /* Min Address */
- 
--            Descriptor->ExtAddress64.Minimum = InitializerOp->Asl.Value.Integer;
-+            Minimum = InitializerOp->Asl.Value.Integer;
-             RsCreateQwordField (InitializerOp, ACPI_RESTAG_MINADDR,
-                 CurrentByteOffset + ASL_RESDESC_OFFSET (ExtAddress64.Minimum));
-             MinOp = InitializerOp;
-@@ -514,7 +553,7 @@ RsDoExtendedSpaceDescriptor (
- 
-         case 8: /* Max Address */
- 
--            Descriptor->ExtAddress64.Maximum = InitializerOp->Asl.Value.Integer;
-+            Maximum = InitializerOp->Asl.Value.Integer;
-             RsCreateQwordField (InitializerOp, ACPI_RESTAG_MAXADDR,
-                 CurrentByteOffset + ASL_RESDESC_OFFSET (ExtAddress64.Maximum));
-             MaxOp = InitializerOp;
-@@ -522,14 +561,14 @@ RsDoExtendedSpaceDescriptor (
- 
-         case 9: /* Translation Offset */
- 
--            Descriptor->ExtAddress64.TranslationOffset = InitializerOp->Asl.Value.Integer;
-+            TranslationOffset = InitializerOp->Asl.Value.Integer;
-             RsCreateQwordField (InitializerOp, ACPI_RESTAG_TRANSLATION,
-                 CurrentByteOffset + ASL_RESDESC_OFFSET (ExtAddress64.TranslationOffset));
-             break;
- 
-         case 10: /* Address Length */
- 
--            Descriptor->ExtAddress64.AddressLength = InitializerOp->Asl.Value.Integer;
-+            AddressLength = InitializerOp->Asl.Value.Integer;
-             RsCreateQwordField (InitializerOp, ACPI_RESTAG_LENGTH,
-                 CurrentByteOffset + ASL_RESDESC_OFFSET (ExtAddress64.AddressLength));
-             LengthOp = InitializerOp;
-@@ -537,7 +576,7 @@ RsDoExtendedSpaceDescriptor (
- 
-         case 11: /* Type-Specific Attributes */
- 
--            Descriptor->ExtAddress64.TypeSpecific = InitializerOp->Asl.Value.Integer;
-+            TypeSpecific = InitializerOp->Asl.Value.Integer;
-             RsCreateQwordField (InitializerOp, ACPI_RESTAG_TYPESPECIFICATTRIBUTES,
-                 CurrentByteOffset + ASL_RESDESC_OFFSET (ExtAddress64.TypeSpecific));
-             break;
-@@ -559,13 +598,20 @@ RsDoExtendedSpaceDescriptor (
-     /* Validate the Min/Max/Len/Gran values */
- 
-     RsLargeAddressCheck (
--        Descriptor->ExtAddress64.Minimum,
--        Descriptor->ExtAddress64.Maximum,
--        Descriptor->ExtAddress64.AddressLength,
--        Descriptor->ExtAddress64.Granularity,
-+        Minimum,
-+        Maximum,
-+        AddressLength,
-+        Granularity,
-         Descriptor->ExtAddress64.Flags,
-         MinOp, MaxOp, LengthOp, GranOp, Op);
- 
-+    ACPI_MOVE_64_TO_64(&Descriptor->ExtAddress64.Minimum, &Minimum);
-+    ACPI_MOVE_64_TO_64(&Descriptor->ExtAddress64.Maximum, &Maximum);
-+    ACPI_MOVE_64_TO_64(&Descriptor->ExtAddress64.AddressLength, &AddressLength);
-+    ACPI_MOVE_64_TO_64(&Descriptor->ExtAddress64.Granularity, &Granularity);
-+    ACPI_MOVE_64_TO_64(&Descriptor->ExtAddress64.TranslationOffset, &TranslationOffset);
-+    ACPI_MOVE_64_TO_64(&Descriptor->ExtAddress64.TypeSpecific, &TypeSpecific);
-+
-     Rnode->BufferLength = sizeof (AML_RESOURCE_EXTENDED_ADDRESS64) + StringLength;
-     return (Rnode);
- }
-diff -up acpica-unix2-20140424/source/compiler/aslrestype2q.c.debian-big_endian acpica-unix2-20140424/source/compiler/aslrestype2q.c
---- acpica-unix2-20140424/source/compiler/aslrestype2q.c.debian-big_endian	2014-04-24 11:49:00.000000000 -0400
-+++ acpica-unix2-20140424/source/compiler/aslrestype2q.c	2014-06-06 20:43:34.721825238 -0400
-@@ -80,7 +86,13 @@ RsDoQwordIoDescriptor (
+Index: acpica-unix2-20170224/source/compiler/aslrestype2q.c
+===================================================================
+--- acpica-unix2-20170224.orig/source/compiler/aslrestype2q.c
++++ acpica-unix2-20170224/source/compiler/aslrestype2q.c
+@@ -80,7 +80,13 @@ RsDoQwordIoDescriptor (
      ASL_RESOURCE_NODE       *Rnode;
      UINT8                   *OptionalFields;
      UINT16                  StringLength = 0;
@@ -1389,7 +1211,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2q.c.debian-big_endian 
      UINT32                  CurrentByteOffset;
      UINT32                  i;
      BOOLEAN                 ResSourceIndex = FALSE;
-@@ -102,8 +101,7 @@ RsDoQwordIoDescriptor (
+@@ -102,8 +108,7 @@ RsDoQwordIoDescriptor (
       * optional fields present
       */
      OptionalFields = ((UINT8 *) Descriptor) + sizeof (AML_RESOURCE_ADDRESS64);
@@ -1399,7 +1221,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2q.c.debian-big_endian 
           sizeof (AML_RESOURCE_LARGE_HEADER));
  
      /* Process all child initialization nodes */
-@@ -147,7 +147,7 @@ RsDoQwordIoDescriptor (
+@@ -147,7 +152,7 @@ RsDoQwordIoDescriptor (
  
          case 5: /* Address Granularity */
  
@@ -1408,7 +1230,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2q.c.debian-big_endian 
              RsCreateQwordField (InitializerOp, ACPI_RESTAG_GRANULARITY,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (Address64.Granularity));
              GranOp = InitializerOp;
-@@ -155,7 +155,7 @@ RsDoQwordIoDescriptor (
+@@ -155,7 +160,7 @@ RsDoQwordIoDescriptor (
  
          case 6: /* Address Min */
  
@@ -1417,7 +1239,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2q.c.debian-big_endian 
              RsCreateQwordField (InitializerOp, ACPI_RESTAG_MINADDR,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (Address64.Minimum));
              MinOp = InitializerOp;
-@@ -163,7 +163,7 @@ RsDoQwordIoDescriptor (
+@@ -163,7 +168,7 @@ RsDoQwordIoDescriptor (
  
          case 7: /* Address Max */
  
@@ -1426,7 +1248,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2q.c.debian-big_endian 
              RsCreateQwordField (InitializerOp, ACPI_RESTAG_MAXADDR,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (Address64.Maximum));
              MaxOp = InitializerOp;
-@@ -171,14 +171,14 @@ RsDoQwordIoDescriptor (
+@@ -171,14 +176,14 @@ RsDoQwordIoDescriptor (
  
          case 8: /* Translation Offset */
  
@@ -1443,7 +1265,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2q.c.debian-big_endian 
              RsCreateQwordField (InitializerOp, ACPI_RESTAG_LENGTH,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (Address64.AddressLength));
              LengthOp = InitializerOp;
-@@ -190,7 +190,7 @@ RsDoQwordIoDescriptor (
+@@ -190,7 +195,7 @@ RsDoQwordIoDescriptor (
              {
                  OptionalFields[0] = (UINT8) InitializerOp->Asl.Value.Integer;
                  OptionIndex++;
@@ -1452,7 +1274,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2q.c.debian-big_endian 
                  ResSourceIndex = TRUE;
              }
              break;
-@@ -202,8 +201,7 @@ RsDoQwordIoDescriptor (
+@@ -202,8 +207,7 @@ RsDoQwordIoDescriptor (
              {
                  if (StringLength)
                  {
@@ -1462,7 +1284,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2q.c.debian-big_endian 
  
                      strcpy ((char *)
                          &OptionalFields[OptionIndex],
-@@ -263,13 +270,20 @@ RsDoQwordIoDescriptor (
+@@ -263,13 +267,20 @@ RsDoQwordIoDescriptor (
      /* Validate the Min/Max/Len/Gran values */
  
      RsLargeAddressCheck (
@@ -1487,7 +1309,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2q.c.debian-big_endian 
      Rnode->BufferLength = sizeof (AML_RESOURCE_ADDRESS64) +
          OptionIndex + StringLength;
      return (Rnode);
-@@ -301,7 +307,13 @@ RsDoQwordMemoryDescriptor (
+@@ -301,7 +312,13 @@ RsDoQwordMemoryDescriptor (
      ASL_RESOURCE_NODE       *Rnode;
      UINT8                   *OptionalFields;
      UINT16                  StringLength = 0;
@@ -1501,7 +1323,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2q.c.debian-big_endian 
      UINT32                  CurrentByteOffset;
      UINT32                  i;
      BOOLEAN                 ResSourceIndex = FALSE;
-@@ -323,8 +322,7 @@ RsDoQwordMemoryDescriptor (
+@@ -323,8 +340,7 @@ RsDoQwordMemoryDescriptor (
       * optional fields present
       */
      OptionalFields = ((UINT8 *) Descriptor) + sizeof (AML_RESOURCE_ADDRESS64);
@@ -1511,7 +1333,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2q.c.debian-big_endian 
           sizeof (AML_RESOURCE_LARGE_HEADER));
  
      /* Process all child initialization nodes */
-@@ -375,7 +375,7 @@ RsDoQwordMemoryDescriptor (
+@@ -375,7 +391,7 @@ RsDoQwordMemoryDescriptor (
  
          case 6: /* Address Granularity */
  
@@ -1520,7 +1342,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2q.c.debian-big_endian 
              RsCreateQwordField (InitializerOp, ACPI_RESTAG_GRANULARITY,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (Address64.Granularity));
              GranOp = InitializerOp;
-@@ -383,7 +383,7 @@ RsDoQwordMemoryDescriptor (
+@@ -383,7 +399,7 @@ RsDoQwordMemoryDescriptor (
  
          case 7: /* Min Address */
  
@@ -1529,7 +1351,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2q.c.debian-big_endian 
              RsCreateQwordField (InitializerOp, ACPI_RESTAG_MINADDR,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (Address64.Minimum));
              MinOp = InitializerOp;
-@@ -391,7 +391,7 @@ RsDoQwordMemoryDescriptor (
+@@ -391,7 +407,7 @@ RsDoQwordMemoryDescriptor (
  
          case 8: /* Max Address */
  
@@ -1538,7 +1360,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2q.c.debian-big_endian 
              RsCreateQwordField (InitializerOp, ACPI_RESTAG_MAXADDR,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (Address64.Maximum));
              MaxOp = InitializerOp;
-@@ -399,14 +399,14 @@ RsDoQwordMemoryDescriptor (
+@@ -399,14 +415,14 @@ RsDoQwordMemoryDescriptor (
  
          case 9: /* Translation Offset */
  
@@ -1555,7 +1377,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2q.c.debian-big_endian 
              RsCreateQwordField (InitializerOp, ACPI_RESTAG_LENGTH,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (Address64.AddressLength));
              LengthOp = InitializerOp;
-@@ -418,7 +418,7 @@ RsDoQwordMemoryDescriptor (
+@@ -418,7 +434,7 @@ RsDoQwordMemoryDescriptor (
              {
                  OptionalFields[0] = (UINT8) InitializerOp->Asl.Value.Integer;
                  OptionIndex++;
@@ -1564,7 +1386,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2q.c.debian-big_endian 
                  ResSourceIndex = TRUE;
              }
              break;
-@@ -430,8 +429,7 @@ RsDoQwordMemoryDescriptor (
+@@ -430,8 +446,7 @@ RsDoQwordMemoryDescriptor (
              {
                  if (StringLength)
                  {
@@ -1574,7 +1396,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2q.c.debian-big_endian 
  
                      strcpy ((char *)
                          &OptionalFields[OptionIndex],
-@@ -492,13 +499,20 @@ RsDoQwordMemoryDescriptor (
+@@ -492,13 +507,20 @@ RsDoQwordMemoryDescriptor (
      /* Validate the Min/Max/Len/Gran values */
  
      RsLargeAddressCheck (
@@ -1599,7 +1421,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2q.c.debian-big_endian 
      Rnode->BufferLength = sizeof (AML_RESOURCE_ADDRESS64) +
          OptionIndex + StringLength;
      return (Rnode);
-@@ -530,9 +536,15 @@ RsDoQwordSpaceDescriptor (
+@@ -530,9 +552,15 @@ RsDoQwordSpaceDescriptor (
      ASL_RESOURCE_NODE       *Rnode;
      UINT8                   *OptionalFields;
      UINT16                  StringLength = 0;
@@ -1615,7 +1437,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2q.c.debian-big_endian 
      BOOLEAN                 ResSourceIndex = FALSE;
  
  
-@@ -551,8 +550,7 @@ RsDoQwordSpaceDescriptor (
+@@ -551,8 +579,7 @@ RsDoQwordSpaceDescriptor (
       * optional fields present
       */
      OptionalFields = ((UINT8 *) Descriptor) + sizeof (AML_RESOURCE_ADDRESS64);
@@ -1625,7 +1447,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2q.c.debian-big_endian 
           sizeof (AML_RESOURCE_LARGE_HEADER));
  
      /* Process all child initialization nodes */
-@@ -601,7 +601,7 @@ RsDoQwordSpaceDescriptor (
+@@ -601,7 +628,7 @@ RsDoQwordSpaceDescriptor (
  
          case 6: /* Address Granularity */
  
@@ -1634,7 +1456,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2q.c.debian-big_endian 
              RsCreateQwordField (InitializerOp, ACPI_RESTAG_GRANULARITY,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (Address64.Granularity));
              GranOp = InitializerOp;
-@@ -609,7 +609,7 @@ RsDoQwordSpaceDescriptor (
+@@ -609,7 +636,7 @@ RsDoQwordSpaceDescriptor (
  
          case 7: /* Min Address */
  
@@ -1643,7 +1465,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2q.c.debian-big_endian 
              RsCreateQwordField (InitializerOp, ACPI_RESTAG_MINADDR,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (Address64.Minimum));
              MinOp = InitializerOp;
-@@ -617,7 +617,7 @@ RsDoQwordSpaceDescriptor (
+@@ -617,7 +644,7 @@ RsDoQwordSpaceDescriptor (
  
          case 8: /* Max Address */
  
@@ -1652,7 +1474,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2q.c.debian-big_endian 
              RsCreateQwordField (InitializerOp, ACPI_RESTAG_MAXADDR,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (Address64.Maximum));
              MaxOp = InitializerOp;
-@@ -625,14 +625,14 @@ RsDoQwordSpaceDescriptor (
+@@ -625,14 +652,14 @@ RsDoQwordSpaceDescriptor (
  
          case 9: /* Translation Offset */
  
@@ -1669,7 +1491,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2q.c.debian-big_endian 
              RsCreateQwordField (InitializerOp, ACPI_RESTAG_LENGTH,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (Address64.AddressLength));
              LengthOp = InitializerOp;
-@@ -644,7 +644,7 @@ RsDoQwordSpaceDescriptor (
+@@ -644,7 +671,7 @@ RsDoQwordSpaceDescriptor (
              {
                  OptionalFields[0] = (UINT8) InitializerOp->Asl.Value.Integer;
                  OptionIndex++;
@@ -1678,7 +1500,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2q.c.debian-big_endian 
                  ResSourceIndex = TRUE;
              }
              break;
-@@ -656,8 +655,7 @@ RsDoQwordSpaceDescriptor (
+@@ -656,8 +683,7 @@ RsDoQwordSpaceDescriptor (
              {
                  if (StringLength)
                  {
@@ -1688,7 +1510,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2q.c.debian-big_endian 
  
                      strcpy ((char *)
                          &OptionalFields[OptionIndex],
-@@ -703,13 +710,20 @@ RsDoQwordSpaceDescriptor (
+@@ -703,13 +729,20 @@ RsDoQwordSpaceDescriptor (
      /* Validate the Min/Max/Len/Gran values */
  
      RsLargeAddressCheck (
@@ -1713,10 +1535,11 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2q.c.debian-big_endian 
      Rnode->BufferLength = sizeof (AML_RESOURCE_ADDRESS64) +
          OptionIndex + StringLength;
      return (Rnode);
-diff -up acpica-unix2-20140424/source/compiler/aslrestype2s.c.debian-big_endian acpica-unix2-20140424/source/compiler/aslrestype2s.c
---- acpica-unix2-20140424/source/compiler/aslrestype2s.c.debian-big_endian	2014-04-24 11:49:00.000000000 -0400
-+++ acpica-unix2-20140424/source/compiler/aslrestype2s.c	2014-06-06 20:43:34.721825238 -0400
-@@ -290,6 +293,9 @@ RsDoGpioIntDescriptor (
+Index: acpica-unix2-20170224/source/compiler/aslrestype2s.c
+===================================================================
+--- acpica-unix2-20170224.orig/source/compiler/aslrestype2s.c
++++ acpica-unix2-20170224/source/compiler/aslrestype2s.c
+@@ -290,6 +290,9 @@ RsDoGpioIntDescriptor (
      UINT16                  VendorLength;
      UINT16                  InterruptLength;
      UINT16                  DescriptorSize;
@@ -1726,7 +1549,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2s.c.debian-big_endian 
      UINT32                  CurrentByteOffset;
      UINT32                  PinCount = 0;
      UINT32                  i;
-@@ -349,21 +349,21 @@ RsDoGpioIntDescriptor (
+@@ -346,21 +349,21 @@ RsDoGpioIntDescriptor (
          {
          case 0: /* Interrupt Mode - edge/level [Flag] (_MOD) */
  
@@ -1751,7 +1574,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2s.c.debian-big_endian 
              RsCreateMultiBitField (InitializerOp, ACPI_RESTAG_INTERRUPTSHARE,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (Gpio.IntFlags), 3, 2);
              break;
-@@ -377,7 +377,7 @@ RsDoGpioIntDescriptor (
+@@ -374,7 +377,7 @@ RsDoGpioIntDescriptor (
  
          case 4: /* Debounce Timeout [WORD] (_DBT) */
  
@@ -1760,7 +1583,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2s.c.debian-big_endian 
              RsCreateWordField (InitializerOp, ACPI_RESTAG_DEBOUNCETIME,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (Gpio.DebounceTimeout));
              break;
-@@ -403,7 +403,7 @@ RsDoGpioIntDescriptor (
+@@ -401,7 +404,7 @@ RsDoGpioIntDescriptor (
  
          case 7: /* Resource Usage (consumer/producer) */
  
@@ -1769,7 +1592,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2s.c.debian-big_endian 
              break;
  
          case 8: /* Resource Tag (Descriptor Name) */
-@@ -468,6 +472,10 @@ RsDoGpioIntDescriptor (
+@@ -466,6 +469,10 @@ RsDoGpioIntDescriptor (
          InitializerOp = RsCompleteNodeAndGetNext (InitializerOp);
      }
  
@@ -1777,10 +1600,10 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2s.c.debian-big_endian 
 +    ACPI_MOVE_16_TO_16(&Descriptor->Gpio.DebounceTimeout, &DebounceTimeout);
 +    ACPI_MOVE_16_TO_16(&Descriptor->Gpio.Flags, &Flags);
 +
-     MpSaveGpioInfo (Info->MappingOp, Descriptor, PinCount, PinList, ResourceSource);
+     MpSaveGpioInfo (Info->MappingOp, Descriptor,
+         PinCount, PinList, ResourceSource);
      return (Rnode);
- }
-@@ -500,6 +504,10 @@ RsDoGpioIoDescriptor (
+@@ -499,6 +506,10 @@ RsDoGpioIoDescriptor (
      UINT16                  VendorLength;
      UINT16                  InterruptLength;
      UINT16                  DescriptorSize;
@@ -1791,7 +1614,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2s.c.debian-big_endian 
      UINT32                  CurrentByteOffset;
      UINT32                  PinCount = 0;
      UINT32                  i;
-@@ -560,7 +560,7 @@ RsDoGpioIoDescriptor (
+@@ -555,7 +566,7 @@ RsDoGpioIoDescriptor (
          {
          case 0: /* Share Type [Flags] (_SHR) */
  
@@ -1800,7 +1623,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2s.c.debian-big_endian 
              RsCreateBitField (InitializerOp, ACPI_RESTAG_INTERRUPTSHARE,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (Gpio.IntFlags), 3);
              break;
-@@ -574,21 +574,21 @@ RsDoGpioIoDescriptor (
+@@ -569,21 +580,21 @@ RsDoGpioIoDescriptor (
  
          case 2: /* Debounce Timeout [WORD] (_DBT) */
  
@@ -1825,7 +1648,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2s.c.debian-big_endian 
              RsCreateMultiBitField (InitializerOp, ACPI_RESTAG_IORESTRICTION,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (Gpio.IntFlags), 0, 2);
              break;
-@@ -614,7 +614,7 @@ RsDoGpioIoDescriptor (
+@@ -609,7 +620,7 @@ RsDoGpioIoDescriptor (
  
          case 7: /* Resource Usage (consumer/producer) */
  
@@ -1834,7 +1657,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2s.c.debian-big_endian 
              break;
  
          case 8: /* Resource Tag (Descriptor Name) */
-@@ -678,6 +683,11 @@ RsDoGpioIoDescriptor (
+@@ -673,6 +684,11 @@ RsDoGpioIoDescriptor (
          InitializerOp = RsCompleteNodeAndGetNext (InitializerOp);
      }
  
@@ -1843,10 +1666,10 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2s.c.debian-big_endian 
 +    ACPI_MOVE_16_TO_16(&Descriptor->Gpio.DriveStrength, &DriveStrength);
 +    ACPI_MOVE_16_TO_16(&Descriptor->Gpio.Flags, &Flags);
 +
-     MpSaveGpioInfo (Info->MappingOp, Descriptor, PinCount, PinList, ResourceSource);
+     MpSaveGpioInfo (Info->MappingOp, Descriptor,
+         PinCount, PinList, ResourceSource);
      return (Rnode);
- }
-@@ -707,6 +710,9 @@ RsDoI2cSerialBusDescriptor (
+@@ -703,6 +719,9 @@ RsDoI2cSerialBusDescriptor (
      UINT16                  ResSourceLength;
      UINT16                  VendorLength;
      UINT16                  DescriptorSize;
@@ -1856,7 +1679,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2s.c.debian-big_endian 
      UINT32                  CurrentByteOffset;
      UINT32                  i;
  
-@@ -756,7 +756,7 @@ RsDoI2cSerialBusDescriptor (
+@@ -752,7 +771,7 @@ RsDoI2cSerialBusDescriptor (
          {
          case 0: /* Slave Address [WORD] (_ADR) */
  
@@ -1865,7 +1688,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2s.c.debian-big_endian 
              RsCreateWordField (InitializerOp, ACPI_RESTAG_ADDRESS,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (I2cSerialBus.SlaveAddress));
              break;
-@@ -770,14 +770,14 @@ RsDoI2cSerialBusDescriptor (
+@@ -766,14 +785,14 @@ RsDoI2cSerialBusDescriptor (
  
          case 2: /* Connection Speed [DWORD] (_SPE) */
  
@@ -1882,7 +1705,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2s.c.debian-big_endian 
              RsCreateBitField (InitializerOp, ACPI_RESTAG_MODE,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (I2cSerialBus.TypeSpecificFlags), 0);
              break;
-@@ -825,6 +828,9 @@ RsDoI2cSerialBusDescriptor (
+@@ -833,6 +852,9 @@ RsDoI2cSerialBusDescriptor (
          InitializerOp = RsCompleteNodeAndGetNext (InitializerOp);
      }
  
@@ -1892,7 +1715,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2s.c.debian-big_endian 
      MpSaveSerialInfo (Info->MappingOp, Descriptor, ResourceSource);
      return (Rnode);
  }
-@@ -854,6 +857,9 @@ RsDoSpiSerialBusDescriptor (
+@@ -862,6 +884,9 @@ RsDoSpiSerialBusDescriptor (
      UINT16                  ResSourceLength;
      UINT16                  VendorLength;
      UINT16                  DescriptorSize;
@@ -1902,7 +1725,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2s.c.debian-big_endian 
      UINT32                  CurrentByteOffset;
      UINT32                  i;
  
-@@ -903,21 +903,21 @@ RsDoSpiSerialBusDescriptor (
+@@ -912,21 +937,21 @@ RsDoSpiSerialBusDescriptor (
          {
          case 0: /* Device Selection [WORD] (_ADR) */
  
@@ -1927,7 +1750,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2s.c.debian-big_endian 
              RsCreateBitField (InitializerOp, ACPI_RESTAG_MODE,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (SpiSerialBus.TypeSpecificFlags), 0);
              break;
-@@ -938,7 +938,7 @@ RsDoSpiSerialBusDescriptor (
+@@ -947,7 +972,7 @@ RsDoSpiSerialBusDescriptor (
  
          case 5: /* Connection Speed [DWORD] (_SPE) */
  
@@ -1936,7 +1759,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2s.c.debian-big_endian 
              RsCreateDwordField (InitializerOp, ACPI_RESTAG_SPEED,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (SpiSerialBus.ConnectionSpeed));
              break;
-@@ -1000,6 +1004,10 @@ RsDoSpiSerialBusDescriptor (
+@@ -1021,6 +1046,10 @@ RsDoSpiSerialBusDescriptor (
          InitializerOp = RsCompleteNodeAndGetNext (InitializerOp);
      }
  
@@ -1947,7 +1770,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2s.c.debian-big_endian 
      MpSaveSerialInfo (Info->MappingOp, Descriptor, ResourceSource);
      return (Rnode);
  }
-@@ -1029,6 +1033,10 @@ RsDoUartSerialBusDescriptor (
+@@ -1050,6 +1079,10 @@ RsDoUartSerialBusDescriptor (
      UINT16                  ResSourceLength;
      UINT16                  VendorLength;
      UINT16                  DescriptorSize;
@@ -1958,7 +1781,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2s.c.debian-big_endian 
      UINT32                  CurrentByteOffset;
      UINT32                  i;
  
-@@ -1078,21 +1078,21 @@ RsDoUartSerialBusDescriptor (
+@@ -1099,21 +1132,21 @@ RsDoUartSerialBusDescriptor (
          {
          case 0: /* Connection Speed (Baud Rate) [DWORD] (_SPE) */
  
@@ -1983,7 +1806,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2s.c.debian-big_endian 
              RsCreateMultiBitField (InitializerOp, ACPI_RESTAG_STOPBITS,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (UartSerialBus.TypeSpecificFlags), 2, 2);
              break;
-@@ -1106,7 +1106,7 @@ RsDoUartSerialBusDescriptor (
+@@ -1127,7 +1160,7 @@ RsDoUartSerialBusDescriptor (
  
          case 4: /* Endianness [Flag] (_END) */
  
@@ -1992,7 +1815,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2s.c.debian-big_endian 
              RsCreateBitField (InitializerOp, ACPI_RESTAG_ENDIANNESS,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (UartSerialBus.TypeSpecificFlags), 7);
              break;
-@@ -1120,21 +1120,21 @@ RsDoUartSerialBusDescriptor (
+@@ -1141,21 +1174,21 @@ RsDoUartSerialBusDescriptor (
  
          case 6: /* Flow Control [Flags] (_FLC) */
  
@@ -2017,7 +1840,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2s.c.debian-big_endian 
              RsCreateWordField (InitializerOp, ACPI_RESTAG_LENGTH_TX,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (UartSerialBus.TxFifoSize));
              break;
-@@ -1192,6 +1197,11 @@ RsDoUartSerialBusDescriptor (
+@@ -1225,6 +1258,11 @@ RsDoUartSerialBusDescriptor (
          InitializerOp = RsCompleteNodeAndGetNext (InitializerOp);
      }
  
@@ -2029,10 +1852,11 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2s.c.debian-big_endian 
      MpSaveSerialInfo (Info->MappingOp, Descriptor, ResourceSource);
      return (Rnode);
  }
-diff -up acpica-unix2-20140424/source/compiler/aslrestype2w.c.debian-big_endian acpica-unix2-20140424/source/compiler/aslrestype2w.c
---- acpica-unix2-20140424/source/compiler/aslrestype2w.c.debian-big_endian	2014-04-24 11:49:00.000000000 -0400
-+++ acpica-unix2-20140424/source/compiler/aslrestype2w.c	2014-06-06 20:43:34.721825238 -0400
-@@ -81,6 +87,12 @@ RsDoWordIoDescriptor (
+Index: acpica-unix2-20170224/source/compiler/aslrestype2w.c
+===================================================================
+--- acpica-unix2-20170224.orig/source/compiler/aslrestype2w.c
++++ acpica-unix2-20170224/source/compiler/aslrestype2w.c
+@@ -81,6 +81,12 @@ RsDoWordIoDescriptor (
      UINT8                   *OptionalFields;
      UINT16                  StringLength = 0;
      UINT32                  OptionIndex = 0;
@@ -2045,7 +1869,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2w.c.debian-big_endian 
      UINT32                  CurrentByteOffset;
      UINT32                  i;
      BOOLEAN                 ResSourceIndex = FALSE;
-@@ -102,8 +101,7 @@ RsDoWordIoDescriptor (
+@@ -102,8 +108,7 @@ RsDoWordIoDescriptor (
       * optional fields present
       */
      OptionalFields = ((UINT8 *) Descriptor) + sizeof (AML_RESOURCE_ADDRESS16);
@@ -2055,7 +1879,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2w.c.debian-big_endian 
           sizeof (AML_RESOURCE_LARGE_HEADER));
  
      /* Process all child initialization nodes */
-@@ -147,7 +147,7 @@ RsDoWordIoDescriptor (
+@@ -147,7 +152,7 @@ RsDoWordIoDescriptor (
  
          case 5: /* Address Granularity */
  
@@ -2064,7 +1888,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2w.c.debian-big_endian 
              RsCreateWordField (InitializerOp, ACPI_RESTAG_GRANULARITY,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (Address16.Granularity));
              GranOp = InitializerOp;
-@@ -155,7 +155,7 @@ RsDoWordIoDescriptor (
+@@ -155,7 +160,7 @@ RsDoWordIoDescriptor (
  
          case 6: /* Address Min */
  
@@ -2073,7 +1897,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2w.c.debian-big_endian 
              RsCreateWordField (InitializerOp, ACPI_RESTAG_MINADDR,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (Address16.Minimum));
              MinOp = InitializerOp;
-@@ -163,7 +163,7 @@ RsDoWordIoDescriptor (
+@@ -163,7 +168,7 @@ RsDoWordIoDescriptor (
  
          case 7: /* Address Max */
  
@@ -2082,7 +1906,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2w.c.debian-big_endian 
              RsCreateWordField (InitializerOp, ACPI_RESTAG_MAXADDR,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (Address16.Maximum));
              MaxOp = InitializerOp;
-@@ -171,14 +171,14 @@ RsDoWordIoDescriptor (
+@@ -171,14 +176,14 @@ RsDoWordIoDescriptor (
  
          case 8: /* Translation Offset */
  
@@ -2099,7 +1923,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2w.c.debian-big_endian 
              RsCreateWordField (InitializerOp, ACPI_RESTAG_LENGTH,
                   CurrentByteOffset + ASL_RESDESC_OFFSET (Address16.AddressLength));
              LengthOp = InitializerOp;
-@@ -190,7 +190,7 @@ RsDoWordIoDescriptor (
+@@ -190,7 +195,7 @@ RsDoWordIoDescriptor (
              {
                  OptionalFields[0] = (UINT8) InitializerOp->Asl.Value.Integer;
                  OptionIndex++;
@@ -2108,7 +1932,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2w.c.debian-big_endian 
                  ResSourceIndex = TRUE;
              }
              break;
-@@ -202,8 +201,7 @@ RsDoWordIoDescriptor (
+@@ -202,8 +207,7 @@ RsDoWordIoDescriptor (
              {
                  if (StringLength)
                  {
@@ -2118,7 +1942,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2w.c.debian-big_endian 
  
                      strcpy ((char *)
                          &OptionalFields[OptionIndex],
-@@ -263,13 +270,20 @@ RsDoWordIoDescriptor (
+@@ -263,13 +267,20 @@ RsDoWordIoDescriptor (
      /* Validate the Min/Max/Len/Gran values */
  
      RsLargeAddressCheck (
@@ -2143,7 +1967,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2w.c.debian-big_endian 
      Rnode->BufferLength = sizeof (AML_RESOURCE_ADDRESS16) +
          OptionIndex + StringLength;
      return (Rnode);
-@@ -302,6 +308,12 @@ RsDoWordBusNumberDescriptor (
+@@ -302,6 +313,12 @@ RsDoWordBusNumberDescriptor (
      UINT8                   *OptionalFields;
      UINT16                  StringLength = 0;
      UINT32                  OptionIndex = 0;
@@ -2156,7 +1980,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2w.c.debian-big_endian 
      UINT32                  CurrentByteOffset;
      UINT32                  i;
      BOOLEAN                 ResSourceIndex = FALSE;
-@@ -323,8 +322,7 @@ RsDoWordBusNumberDescriptor (
+@@ -323,8 +340,7 @@ RsDoWordBusNumberDescriptor (
       * optional fields present
       */
      OptionalFields = ((UINT8 *) Descriptor) + sizeof (AML_RESOURCE_ADDRESS16);
@@ -2166,7 +1990,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2w.c.debian-big_endian 
           sizeof (AML_RESOURCE_LARGE_HEADER));
  
      /* Process all child initialization nodes */
-@@ -361,8 +360,7 @@ RsDoWordBusNumberDescriptor (
+@@ -361,8 +377,7 @@ RsDoWordBusNumberDescriptor (
  
          case 4: /* Address Granularity */
  
@@ -2176,7 +2000,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2w.c.debian-big_endian 
              RsCreateWordField (InitializerOp, ACPI_RESTAG_GRANULARITY,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (Address16.Granularity));
              GranOp = InitializerOp;
-@@ -370,8 +369,7 @@ RsDoWordBusNumberDescriptor (
+@@ -370,8 +385,7 @@ RsDoWordBusNumberDescriptor (
  
          case 5: /* Min Address */
  
@@ -2186,7 +2010,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2w.c.debian-big_endian 
              RsCreateWordField (InitializerOp, ACPI_RESTAG_MINADDR,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (Address16.Minimum));
              MinOp = InitializerOp;
-@@ -379,8 +378,7 @@ RsDoWordBusNumberDescriptor (
+@@ -379,8 +393,7 @@ RsDoWordBusNumberDescriptor (
  
          case 6: /* Max Address */
  
@@ -2196,7 +2020,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2w.c.debian-big_endian 
              RsCreateWordField (InitializerOp, ACPI_RESTAG_MAXADDR,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (Address16.Maximum));
              MaxOp = InitializerOp;
-@@ -388,16 +386,14 @@ RsDoWordBusNumberDescriptor (
+@@ -388,16 +401,14 @@ RsDoWordBusNumberDescriptor (
  
          case 7: /* Translation Offset */
  
@@ -2215,7 +2039,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2w.c.debian-big_endian 
              RsCreateWordField (InitializerOp, ACPI_RESTAG_LENGTH,
                   CurrentByteOffset + ASL_RESDESC_OFFSET (Address16.AddressLength));
              LengthOp = InitializerOp;
-@@ -409,7 +409,7 @@ RsDoWordBusNumberDescriptor (
+@@ -409,7 +420,7 @@ RsDoWordBusNumberDescriptor (
              {
                  OptionalFields[0] = (UINT8) InitializerOp->Asl.Value.Integer;
                  OptionIndex++;
@@ -2224,7 +2048,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2w.c.debian-big_endian 
                  ResSourceIndex = TRUE;
              }
              break;
-@@ -421,8 +420,7 @@ RsDoWordBusNumberDescriptor (
+@@ -421,8 +432,7 @@ RsDoWordBusNumberDescriptor (
              {
                  if (StringLength)
                  {
@@ -2234,7 +2058,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2w.c.debian-big_endian 
  
                      strcpy ((char *)
                          &OptionalFields[OptionIndex],
-@@ -468,13 +475,20 @@ RsDoWordBusNumberDescriptor (
+@@ -468,13 +478,20 @@ RsDoWordBusNumberDescriptor (
      /* Validate the Min/Max/Len/Gran values */
  
      RsLargeAddressCheck (
@@ -2259,7 +2083,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2w.c.debian-big_endian 
      Rnode->BufferLength = sizeof (AML_RESOURCE_ADDRESS16) +
          OptionIndex + StringLength;
      return (Rnode);
-@@ -507,6 +513,12 @@ RsDoWordSpaceDescriptor (
+@@ -507,6 +524,12 @@ RsDoWordSpaceDescriptor (
      UINT8                   *OptionalFields;
      UINT16                  StringLength = 0;
      UINT32                  OptionIndex = 0;
@@ -2272,7 +2096,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2w.c.debian-big_endian 
      UINT32                  CurrentByteOffset;
      UINT32                  i;
      BOOLEAN                 ResSourceIndex = FALSE;
-@@ -527,8 +526,7 @@ RsDoWordSpaceDescriptor (
+@@ -527,8 +550,7 @@ RsDoWordSpaceDescriptor (
       * optional fields present
       */
      OptionalFields = ((UINT8 *) Descriptor) + sizeof (AML_RESOURCE_ADDRESS16);
@@ -2282,7 +2106,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2w.c.debian-big_endian 
           sizeof (AML_RESOURCE_LARGE_HEADER));
  
      /* Process all child initialization nodes */
-@@ -577,8 +576,7 @@ RsDoWordSpaceDescriptor (
+@@ -577,8 +599,7 @@ RsDoWordSpaceDescriptor (
  
          case 6: /* Address Granularity */
  
@@ -2292,7 +2116,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2w.c.debian-big_endian 
              RsCreateWordField (InitializerOp, ACPI_RESTAG_GRANULARITY,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (Address16.Granularity));
              GranOp = InitializerOp;
-@@ -586,8 +585,7 @@ RsDoWordSpaceDescriptor (
+@@ -586,8 +607,7 @@ RsDoWordSpaceDescriptor (
  
          case 7: /* Min Address */
  
@@ -2302,7 +2126,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2w.c.debian-big_endian 
              RsCreateWordField (InitializerOp, ACPI_RESTAG_MINADDR,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (Address16.Minimum));
              MinOp = InitializerOp;
-@@ -595,8 +594,7 @@ RsDoWordSpaceDescriptor (
+@@ -595,8 +615,7 @@ RsDoWordSpaceDescriptor (
  
          case 8: /* Max Address */
  
@@ -2312,7 +2136,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2w.c.debian-big_endian 
              RsCreateWordField (InitializerOp, ACPI_RESTAG_MAXADDR,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (Address16.Maximum));
              MaxOp = InitializerOp;
-@@ -604,16 +602,14 @@ RsDoWordSpaceDescriptor (
+@@ -604,16 +623,14 @@ RsDoWordSpaceDescriptor (
  
          case 9: /* Translation Offset */
  
@@ -2331,7 +2155,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2w.c.debian-big_endian 
              RsCreateWordField (InitializerOp, ACPI_RESTAG_LENGTH,
                  CurrentByteOffset + ASL_RESDESC_OFFSET (Address16.AddressLength));
              LengthOp = InitializerOp;
-@@ -625,7 +625,7 @@ RsDoWordSpaceDescriptor (
+@@ -625,7 +642,7 @@ RsDoWordSpaceDescriptor (
              {
                  OptionalFields[0] = (UINT8) InitializerOp->Asl.Value.Integer;
                  OptionIndex++;
@@ -2340,7 +2164,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2w.c.debian-big_endian 
                  ResSourceIndex = TRUE;
              }
              break;
-@@ -637,8 +636,7 @@ RsDoWordSpaceDescriptor (
+@@ -637,8 +654,7 @@ RsDoWordSpaceDescriptor (
              {
                  if (StringLength)
                  {
@@ -2350,7 +2174,7 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2w.c.debian-big_endian 
  
                      strcpy ((char *)
                          &OptionalFields[OptionIndex],
-@@ -684,13 +691,20 @@ RsDoWordSpaceDescriptor (
+@@ -684,13 +700,20 @@ RsDoWordSpaceDescriptor (
      /* Validate the Min/Max/Len/Gran values */
  
      RsLargeAddressCheck (
@@ -2375,10 +2199,11 @@ diff -up acpica-unix2-20140424/source/compiler/aslrestype2w.c.debian-big_endian 
      Rnode->BufferLength = sizeof (AML_RESOURCE_ADDRESS16) +
          OptionIndex + StringLength;
      return (Rnode);
-diff -up acpica-unix2-20140424/source/include/acmacros.h.debian-big_endian acpica-unix2-20140424/source/include/acmacros.h
---- acpica-unix2-20140424/source/include/acmacros.h.debian-big_endian	2014-04-24 11:49:05.000000000 -0400
-+++ acpica-unix2-20140424/source/include/acmacros.h	2014-06-06 20:43:34.721825238 -0400
-@@ -111,7 +111,8 @@
+Index: acpica-unix2-20170224/source/include/acmacros.h
+===================================================================
+--- acpica-unix2-20170224.orig/source/include/acmacros.h
++++ acpica-unix2-20170224/source/include/acmacros.h
+@@ -100,7 +100,8 @@
  
  /* 32-bit source, 16/32/64 destination */
  
@@ -2388,7 +2213,7 @@ diff -up acpica-unix2-20140424/source/include/acmacros.h.debian-big_endian acpic
  
  #define ACPI_MOVE_32_TO_32(d, s)        {((  UINT8 *)(void *)(d))[0] = ((UINT8 *)(void *)(s))[3];\
                                           ((  UINT8 *)(void *)(d))[1] = ((UINT8 *)(void *)(s))[2];\
-@@ -126,9 +127,13 @@
+@@ -115,9 +116,13 @@
  
  /* 64-bit source, 16/32/64 destination */
  
@@ -2404,7 +2229,7 @@ diff -up acpica-unix2-20140424/source/include/acmacros.h.debian-big_endian acpic
  
  #define ACPI_MOVE_64_TO_64(d, s)        {((  UINT8 *)(void *)(d))[0] = ((UINT8 *)(void *)(s))[7];\
                                           ((  UINT8 *)(void *)(d))[1] = ((UINT8 *)(void *)(s))[6];\
-@@ -155,7 +160,9 @@
+@@ -144,7 +149,9 @@
  
  /* 32-bit source, 16/32/64 destination */
  
@@ -2415,35 +2240,15 @@ diff -up acpica-unix2-20140424/source/include/acmacros.h.debian-big_endian acpic
  #define ACPI_MOVE_32_TO_32(d, s)        *(UINT32 *)(void *)(d) = *(UINT32 *)(void *)(s)
  #define ACPI_MOVE_32_TO_64(d, s)        *(UINT64 *)(void *)(d) = *(UINT32 *)(void *)(s)
  
-diff -up acpica-unix2-20140424/source/include/platform/aclinux.h.debian-big_endian acpica-unix2-20140424/source/include/platform/aclinux.h
---- acpica-unix2-20140424/source/include/platform/aclinux.h.debian-big_endian	2014-04-24 11:49:06.000000000 -0400
-+++ acpica-unix2-20140424/source/include/platform/aclinux.h	2014-06-06 20:44:28.781825238 -0400
-@@ -167,6 +167,7 @@
- #include <stdlib.h>
- #include <ctype.h>
+Index: acpica-unix2-20170224/source/include/platform/aclinux.h
+===================================================================
+--- acpica-unix2-20170224.orig/source/include/platform/aclinux.h
++++ acpica-unix2-20170224/source/include/platform/aclinux.h
+@@ -185,6 +185,7 @@
+ 
+ #ifdef ACPI_USE_STANDARD_HEADERS
  #include <unistd.h>
 +#include <endian.h>
+ #endif
  
  /* Define/disable kernel-specific declarators */
- 
-@@ -179,8 +180,7 @@
- #define ACPI_FLUSH_CPU_CACHE()
- #define ACPI_CAST_PTHREAD_T(Pthread) ((ACPI_THREAD_ID) (Pthread))
- 
--#if defined(__ia64__)    || defined(__x86_64__) ||\
--    defined(__aarch64__) || defined(__PPC64__)
-+#if __SIZEOF_LONG__ == 8
- #define ACPI_MACHINE_WIDTH          64
- #define COMPILER_DEPENDENT_INT64    long
- #define COMPILER_DEPENDENT_UINT64   unsigned long
-@@ -191,6 +191,10 @@
- #define ACPI_USE_NATIVE_DIVIDE
- #endif
- 
-+#if __BYTE_ORDER == __BIG_ENDIAN
-+#define ACPI_BIG_ENDIAN
-+#endif
-+
- #ifndef __cdecl
- #define __cdecl
- #endif

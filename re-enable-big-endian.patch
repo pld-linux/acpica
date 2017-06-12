@@ -1,11 +1,17 @@
 Re-enable use of these tools on big-endian machines.
 
-Al Stone <ahs3@redhat.com>
+From: Al Stone <ahs3@redhat.com>
 
-diff -Naur acpica-unix2-20140424/source/compiler/aslmain.c acpica-unix2-20140424-patch/source/compiler/aslmain.c
---- acpica-unix2-20140424/source/compiler/aslmain.c	2014-04-24 09:48:59.000000000 -0600
-+++ acpica-unix2-20140424-patch/source/compiler/aslmain.c	2014-05-22 12:55:47.634904320 -0600
-@@ -331,18 +319,6 @@
+Al Stone <ahs3@redhat.com>
+---
+ source/compiler/aslmain.c |   12 ------------
+ 1 file changed, 12 deletions(-)
+
+Index: acpica-unix2-20161222/source/compiler/aslmain.c
+===================================================================
+--- acpica-unix2-20161222.orig/source/compiler/aslmain.c
++++ acpica-unix2-20161222/source/compiler/aslmain.c
+@@ -99,18 +99,6 @@ main (
      int                     ReturnStatus = 0;
  
  
@@ -14,7 +20,7 @@ diff -Naur acpica-unix2-20140424/source/compiler/aslmain.c acpica-unix2-20140424
 -     * be little-endian, and support for big-endian machines needs to
 -     * be implemented.
 -     */
--    if (AcpiIsBigEndianMachine ())
+-    if (UtIsBigEndianMachine ())
 -    {
 -        fprintf (stderr,
 -            "iASL is not currently supported on big-endian machines.\n");

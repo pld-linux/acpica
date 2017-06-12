@@ -1,0 +1,15 @@
+This prevents a segfault when an Include file does not exist.
+
+Index: acpica-unix2-20161222/source/compiler/aslfiles.c
+===================================================================
+--- acpica-unix2-20161222.orig/source/compiler/aslfiles.c
++++ acpica-unix2-20161222/source/compiler/aslfiles.c
+@@ -319,7 +319,7 @@ FlOpenIncludeWithPrefix (
+     if (!IncludeFile)
+     {
+         fprintf (stderr, "Could not open include file %s\n", Pathname);
+-        ACPI_FREE (Pathname);
++        /* ACPI_FREE (Pathname); <-- forces free() segfault */
+         return (NULL);
+     }
+ 
