@@ -28,6 +28,7 @@ Patch3:		asllookup-miscompare.patch
 Patch4:		re-enable-big-endian.patch
 Patch5:		OPT_LDFLAGS.patch
 Patch6:		int-format.patch
+Patch7:		%{name}-x32.patch
 Patch8:		asllookup-ppc64.patch
 Patch9:		template.patch
 Patch10:	free.patch
@@ -60,6 +61,7 @@ tar -x --strip-components=1 -f %{SOURCE1}
 %patch4 -p1
 %patch5 -p1
 %patch6 -p1
+%patch7 -p1
 %patch8 -p1
 %patch9 -p1
 %patch10 -p1
