@@ -5,14 +5,14 @@
 Summary:	ACPI Component Architecture - an assembler and disassembler for DSDT tables
 Summary(pl.UTF-8):	ACPI CA - asembler i disasembler dla tablic DSDT
 Name:		acpica
-Version:	20170303
+Version:	20181031
 Release:	1
 License:	GPL v2
 Group:		Development/Tools
 Source0:	https://acpica.org/sites/acpica/files/%{name}-unix-%{version}.tar.gz
-# Source0-md5:	704c7d0ba7ee826ea489995c4837ebd2
+# Source0-md5:	cea3f668b536ec56ae878a3239035f26
 Source1:	https://acpica.org/sites/acpica/files/acpitests-unix-%{version}.tar.gz
-# Source1-md5:	2dc88f6782bb3be3c66bd1a052ee7972
+# Source1-md5:	745791d46298c30cc7ee851ae045dbb0
 Source2:	iasl.1
 Source3:	acpibin.1
 Source4:	acpidump.1
@@ -23,18 +23,20 @@ Source8:	acpisrc.1
 Source9:	acpixtract.1
 Patch0:		debian-big_endian.patch
 Patch1:		debian-unaligned.patch
-Patch2:		name-miscompare.patch
-Patch3:		asllookup-miscompare.patch
-Patch4:		re-enable-big-endian.patch
-Patch5:		OPT_LDFLAGS.patch
 Patch6:		int-format.patch
-Patch7:		%{name}-x32.patch
-Patch8:		asllookup-ppc64.patch
 Patch9:		template.patch
 Patch10:	free.patch
-Patch11:	update-big-endian.patch
 Patch12:	ppc64le.patch
 Patch13:	arm7hl.patch
+Patch14:	big-endian-v2.patch
+Patch15:	be-tpm2.patch
+Patch16:	mips-be-fix.patch
+Patch17:	cve-2017-13693.patch
+Patch18:	cve-2017-13694.patch
+Patch19:	cve-2017-13695.patch
+Patch20:	str-trunc-warn.patch
+Patch21:	ptr-cast.patch
+Patch22:	aslcodegen.patch
 URL:		https://acpica.org/
 BuildRequires:	bison
 BuildRequires:	flex
@@ -56,18 +58,20 @@ tablic DSDT.
 tar -x --strip-components=1 -f %{SOURCE1}
 %patch0 -p1
 %patch1 -p1
-%patch2 -p1
-%patch3 -p1
-%patch4 -p1
-%patch5 -p1
 %patch6 -p1
-%patch7 -p1
-%patch8 -p1
 %patch9 -p1
 %patch10 -p1
-%patch11 -p1
 %patch12 -p1
 %patch13 -p1
+%patch14 -p1
+%patch15 -p1
+%patch16 -p1
+%patch17 -p1
+%patch18 -p1
+%patch19 -p1
+%patch20 -p1
+%patch21 -p1
+%patch22 -p1
 
 %build
 %define	makeopts \\\

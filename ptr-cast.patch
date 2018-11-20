@@ -1,0 +1,50 @@
+Index: acpica-unix-20180508/source/components/tables/tbutils.c
+===================================================================
+--- acpica-unix-20180508.orig/source/components/tables/tbutils.c
++++ acpica-unix-20180508/source/components/tables/tbutils.c
+@@ -238,9 +238,11 @@ AcpiTbGetRootTableEntry (
+          * 64-bit platform, XSDT: Move (unaligned) 64-bit to local,
+          *  return 64-bit
+          */
+-	Address64 = (UINT64) TableEntry;
+ 
+ #if ACPI_MACHINE_WIDTH == 32
++	UINT32 Tmp32 = (UINT32) TableEntry;
++
++	Address64 = (UINT64) Tmp32;
+         if (Address64 > ACPI_UINT32_MAX)
+         {
+             /* Will truncate 64-bit address to 32 bits, issue warning */
+@@ -250,9 +252,15 @@ AcpiTbGetRootTableEntry (
+                 " truncating",
+                 ACPI_FORMAT_UINT64 (Address64)));
+         }
+-#endif
++
++        return ((ACPI_PHYSICAL_ADDRESS) (*ACPI_CAST_PTR (
++            UINT32, TableEntry)));
++#else
++	Address64 = (UINT64) TableEntry;
++
+         return ((ACPI_PHYSICAL_ADDRESS) (*ACPI_CAST_PTR (
+             UINT64, Address64)));
++#endif
+     }
+ }
+ 
+Index: acpica-unix-20180508/source/compiler/aslparseop.c
+===================================================================
+--- acpica-unix-20180508.orig/source/compiler/aslparseop.c
++++ acpica-unix-20180508/source/compiler/aslparseop.c
+@@ -287,7 +287,11 @@ TrCreateValuedLeafOp (
+         ParseOpcode == PARSEOP_NAMESEG ||
+         ParseOpcode == PARSEOP_STRING_LITERAL)
+     {
++#if ACPI_MACHINE_WIDTH == 32
++        Op->Asl.Value.String = (char *) (UINT32) Value;
++#else
+         Op->Asl.Value.String = (char *) Value;
++#endif
+     }
+     else
+     {

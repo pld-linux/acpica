@@ -24,46 +24,24 @@ From: Al Stone <ahs3@redhat.com>
  source/tools/acpiexec/aemain.c          |    2 +-
  18 files changed, 28 insertions(+), 28 deletions(-)
 
-Index: acpica-unix2-20170224/source/compiler/aslcompile.c
+Index: acpica-unix2-20181003/source/compiler/aslerror.c
 ===================================================================
---- acpica-unix2-20170224.orig/source/compiler/aslcompile.c
-+++ acpica-unix2-20170224/source/compiler/aslcompile.c
-@@ -750,7 +750,7 @@ CmCleanupAndExit (
- 
-     if (Gbl_ExceptionCount[ASL_ERROR] > ASL_MAX_ERROR_COUNT)
-     {
--        printf ("\nMaximum error count (%u) exceeded\n",
-+        printf ("\nMaximum error count (%d) exceeded\n",
-             ASL_MAX_ERROR_COUNT);
-     }
- 
-Index: acpica-unix2-20170224/source/compiler/aslerror.c
-===================================================================
---- acpica-unix2-20170224.orig/source/compiler/aslerror.c
-+++ acpica-unix2-20170224/source/compiler/aslerror.c
-@@ -687,7 +687,7 @@ AslCommonError (
-     Gbl_ExceptionCount[Level]++;
-     if (Gbl_ExceptionCount[ASL_ERROR] > ASL_MAX_ERROR_COUNT)
+--- acpica-unix2-20181003.orig/source/compiler/aslerror.c
++++ acpica-unix2-20181003/source/compiler/aslerror.c
+@@ -880,7 +880,7 @@ AslLogNewError (
+     AslGbl_ExceptionCount[Level]++;
+     if (AslGbl_ExceptionCount[ASL_ERROR] > ASL_MAX_ERROR_COUNT)
      {
 -        printf ("\nMaximum error count (%u) exceeded\n", ASL_MAX_ERROR_COUNT);
 +        printf ("\nMaximum error count (%d) exceeded\n", ASL_MAX_ERROR_COUNT);
  
-         Gbl_SourceLine = 0;
-         Gbl_NextError = Gbl_ErrorLog;
-@@ -733,7 +733,7 @@ AslDisableException (
- 
-     if (Gbl_DisabledMessagesIndex >= ASL_MAX_DISABLED_MESSAGES)
-     {
--        printf ("Too many messages have been disabled (max %u)\n",
-+        printf ("Too many messages have been disabled (max %d)\n",
-             ASL_MAX_DISABLED_MESSAGES);
-         return (AE_LIMIT);
-     }
-Index: acpica-unix2-20170224/source/compiler/aslopt.c
+         AslGbl_SourceLine = 0;
+         AslGbl_NextError = AslGbl_ErrorLog;
+Index: acpica-unix2-20181003/source/compiler/aslopt.c
 ===================================================================
---- acpica-unix2-20170224.orig/source/compiler/aslopt.c
-+++ acpica-unix2-20170224/source/compiler/aslopt.c
-@@ -584,7 +584,7 @@ OptOptimizeNamePath (
+--- acpica-unix2-20181003.orig/source/compiler/aslopt.c
++++ acpica-unix2-20181003/source/compiler/aslopt.c
+@@ -583,7 +583,7 @@ OptOptimizeNamePath (
      }
  
      ACPI_DEBUG_PRINT_RAW ((ACPI_DB_OPTIMIZATIONS,
@@ -72,37 +50,11 @@ Index: acpica-unix2-20170224/source/compiler/aslopt.c
          Op->Asl.LogicalLineNumber,
          AcpiPsGetOpcodeName (Op->Common.Parent->Common.AmlOpcode),
          AcpiPsGetOpcodeName (Op->Common.AmlOpcode)));
-Index: acpica-unix2-20170224/source/compiler/aslpredef.c
+Index: acpica-unix2-20181003/source/components/debugger/dbexec.c
 ===================================================================
---- acpica-unix2-20170224.orig/source/compiler/aslpredef.c
-+++ acpica-unix2-20170224/source/compiler/aslpredef.c
-@@ -114,7 +114,7 @@ ApCheckForPredefinedMethod (
- 
-         if (MethodInfo->NumArguments != 0)
-         {
--            sprintf (MsgBuffer, "%s requires %u", Op->Asl.ExternalName, 0);
-+            sprintf (MsgBuffer, "%s requires %d", Op->Asl.ExternalName, 0);
- 
-             AslError (ASL_WARNING, ASL_MSG_RESERVED_ARG_COUNT_HI, Op,
-                 MsgBuffer);
-Index: acpica-unix2-20170224/source/compiler/aslprepkg.c
-===================================================================
---- acpica-unix2-20170224.orig/source/compiler/aslprepkg.c
-+++ acpica-unix2-20170224/source/compiler/aslprepkg.c
-@@ -309,7 +309,7 @@ ApCheckPackage (
- 
-         if (Count & 1)
-         {
--            sprintf (MsgBuffer, "%4.4s: Package length, %d, must be even.",
-+            sprintf (MsgBuffer, "%4.4s: Package length, %u, must be even.",
-                 Predefined->Info.Name, Count);
- 
-             AslError (ASL_ERROR, ASL_MSG_RESERVED_PACKAGE_LENGTH,
-Index: acpica-unix2-20170224/source/components/debugger/dbexec.c
-===================================================================
---- acpica-unix2-20170224.orig/source/components/debugger/dbexec.c
-+++ acpica-unix2-20170224/source/components/debugger/dbexec.c
-@@ -214,7 +214,7 @@ AcpiDbExecuteMethod (
+--- acpica-unix2-20181003.orig/source/components/debugger/dbexec.c
++++ acpica-unix2-20181003/source/components/debugger/dbexec.c
+@@ -230,7 +230,7 @@ AcpiDbExecuteMethod (
              ACPI_ERROR ((AE_INFO,
                  "Possible overflow of internal debugger "
                  "buffer (size 0x%X needed 0x%X)",
@@ -111,10 +63,10 @@ Index: acpica-unix2-20170224/source/components/debugger/dbexec.c
          }
      }
  
-Index: acpica-unix2-20170224/source/components/dispatcher/dsmthdat.c
+Index: acpica-unix2-20181003/source/components/dispatcher/dsmthdat.c
 ===================================================================
---- acpica-unix2-20170224.orig/source/components/dispatcher/dsmthdat.c
-+++ acpica-unix2-20170224/source/components/dispatcher/dsmthdat.c
+--- acpica-unix2-20181003.orig/source/components/dispatcher/dsmthdat.c
++++ acpica-unix2-20181003/source/components/dispatcher/dsmthdat.c
 @@ -291,7 +291,7 @@ AcpiDsMethodDataGetNode (
          if (Index > ACPI_METHOD_MAX_LOCAL)
          {
@@ -133,11 +85,11 @@ Index: acpica-unix2-20170224/source/components/dispatcher/dsmthdat.c
                  Index, ACPI_METHOD_MAX_ARG));
              return_ACPI_STATUS (AE_AML_INVALID_INDEX);
          }
-Index: acpica-unix2-20170224/source/components/dispatcher/dsutils.c
+Index: acpica-unix2-20181003/source/components/dispatcher/dsutils.c
 ===================================================================
---- acpica-unix2-20170224.orig/source/components/dispatcher/dsutils.c
-+++ acpica-unix2-20170224/source/components/dispatcher/dsutils.c
-@@ -793,7 +793,7 @@ AcpiDsCreateOperands (
+--- acpica-unix2-20181003.orig/source/components/dispatcher/dsutils.c
++++ acpica-unix2-20181003/source/components/dispatcher/dsutils.c
+@@ -788,7 +788,7 @@ AcpiDsCreateOperands (
      }
  
      ACPI_DEBUG_PRINT ((ACPI_DB_DISPATCH,
@@ -146,10 +98,10 @@ Index: acpica-unix2-20170224/source/components/dispatcher/dsutils.c
          WalkState->NumOperands, ArgCount, Index));
  
      /* Create the interpreter arguments, in reverse order */
-Index: acpica-unix2-20170224/source/components/dispatcher/dswscope.c
+Index: acpica-unix2-20181003/source/components/dispatcher/dswscope.c
 ===================================================================
---- acpica-unix2-20170224.orig/source/components/dispatcher/dswscope.c
-+++ acpica-unix2-20170224/source/components/dispatcher/dswscope.c
+--- acpica-unix2-20181003.orig/source/components/dispatcher/dswscope.c
++++ acpica-unix2-20181003/source/components/dispatcher/dswscope.c
 @@ -149,7 +149,7 @@ AcpiDsScopeStackPush (
      WalkState->ScopeDepth++;
  
@@ -159,7 +111,7 @@ Index: acpica-unix2-20170224/source/components/dispatcher/dswscope.c
  
      OldScopeInfo = WalkState->ScopeInfo;
      if (OldScopeInfo)
-@@ -212,7 +212,7 @@ AcpiDsScopeStackPop (
+@@ -211,7 +211,7 @@ AcpiDsScopeStackPop (
      WalkState->ScopeDepth--;
  
      ACPI_DEBUG_PRINT ((ACPI_DB_EXEC,
@@ -168,11 +120,11 @@ Index: acpica-unix2-20170224/source/components/dispatcher/dswscope.c
          (UINT32) WalkState->ScopeDepth,
          AcpiUtGetNodeName (ScopeInfo->Scope.Node),
          AcpiUtGetTypeName (ScopeInfo->Common.Value)));
-Index: acpica-unix2-20170224/source/components/events/evgpe.c
+Index: acpica-unix2-20181003/source/components/events/evgpe.c
 ===================================================================
---- acpica-unix2-20170224.orig/source/components/events/evgpe.c
-+++ acpica-unix2-20170224/source/components/events/evgpe.c
-@@ -494,7 +494,7 @@ AcpiEvGpeDetect (
+--- acpica-unix2-20181003.orig/source/components/events/evgpe.c
++++ acpica-unix2-20181003/source/components/events/evgpe.c
+@@ -481,7 +481,7 @@ AcpiEvGpeDetect (
                      "Ignore disabled registers for GPE %02X-%02X: "
                      "RunEnable=%02X, WakeEnable=%02X\n",
                      GpeRegisterInfo->BaseGpeNumber,
@@ -181,32 +133,23 @@ Index: acpica-unix2-20170224/source/components/events/evgpe.c
                      GpeRegisterInfo->EnableForRun,
                      GpeRegisterInfo->EnableForWake));
                  continue;
-@@ -520,7 +520,7 @@ AcpiEvGpeDetect (
-                 "Read registers for GPE %02X-%02X: Status=%02X, Enable=%02X, "
-                 "RunEnable=%02X, WakeEnable=%02X\n",
-                 GpeRegisterInfo->BaseGpeNumber,
--                GpeRegisterInfo->BaseGpeNumber + (ACPI_GPE_REGISTER_WIDTH - 1),
-+                (unsigned int) (GpeRegisterInfo->BaseGpeNumber + (ACPI_GPE_REGISTER_WIDTH - 1)),
-                 StatusReg, EnableReg,
-                 GpeRegisterInfo->EnableForRun,
-                 GpeRegisterInfo->EnableForWake));
-Index: acpica-unix2-20170224/source/components/executer/exdump.c
+Index: acpica-unix2-20181003/source/components/executer/exdump.c
 ===================================================================
---- acpica-unix2-20170224.orig/source/components/executer/exdump.c
-+++ acpica-unix2-20170224/source/components/executer/exdump.c
-@@ -668,7 +668,7 @@ AcpiExDumpOperand (
+--- acpica-unix2-20181003.orig/source/components/executer/exdump.c
++++ acpica-unix2-20181003/source/components/executer/exdump.c
+@@ -678,7 +678,7 @@ AcpiExDumpOperand (
      if (Depth > 0)
      {
-         ACPI_DEBUG_PRINT ((ACPI_DB_EXEC, "%*s[%u] %p ",
--            Depth, " ", Depth, ObjDesc));
-+            (int) Depth, " ", Depth, ObjDesc));
+         ACPI_DEBUG_PRINT ((ACPI_DB_EXEC, "%*s[%u] %p Refs=%u ",
+-            Depth, " ", Depth, ObjDesc, ObjDesc->Common.ReferenceCount));
++            (int) Depth, " ", Depth, ObjDesc, ObjDesc->Common.ReferenceCount));
      }
      else
      {
-Index: acpica-unix2-20170224/source/components/executer/exfldio.c
+Index: acpica-unix2-20181003/source/components/executer/exfldio.c
 ===================================================================
---- acpica-unix2-20170224.orig/source/components/executer/exfldio.c
-+++ acpica-unix2-20170224/source/components/executer/exfldio.c
+--- acpica-unix2-20181003.orig/source/components/executer/exfldio.c
++++ acpica-unix2-20181003/source/components/executer/exfldio.c
 @@ -681,8 +681,8 @@ AcpiExWriteWithUpdateRule (
  
              ACPI_ERROR ((AE_INFO,
@@ -218,11 +161,11 @@ Index: acpica-unix2-20170224/source/components/executer/exfldio.c
              return_ACPI_STATUS (AE_AML_OPERAND_VALUE);
          }
      }
-Index: acpica-unix2-20170224/source/components/executer/exnames.c
+Index: acpica-unix2-20181003/source/components/executer/exnames.c
 ===================================================================
---- acpica-unix2-20170224.orig/source/components/executer/exnames.c
-+++ acpica-unix2-20170224/source/components/executer/exnames.c
-@@ -240,7 +240,7 @@ AcpiExNameSegment (
+--- acpica-unix2-20181003.orig/source/components/executer/exnames.c
++++ acpica-unix2-20181003/source/components/executer/exnames.c
+@@ -237,7 +237,7 @@ AcpiExNameSegment (
           */
          ACPI_DEBUG_PRINT ((ACPI_DB_INFO,
              "Leading character is not alpha: %02Xh (not a name)\n",
@@ -231,7 +174,7 @@ Index: acpica-unix2-20170224/source/components/executer/exnames.c
          Status = AE_CTRL_PENDING;
      }
      else
-@@ -252,7 +252,7 @@ AcpiExNameSegment (
+@@ -249,7 +249,7 @@ AcpiExNameSegment (
          Status = AE_AML_BAD_NAME;
          ACPI_ERROR ((AE_INFO,
              "Bad character 0x%02x in name, at %p",
@@ -240,11 +183,11 @@ Index: acpica-unix2-20170224/source/components/executer/exnames.c
      }
  
      *InAmlAddress = ACPI_CAST_PTR (UINT8, AmlAddress);
-Index: acpica-unix2-20170224/source/components/hardware/hwregs.c
+Index: acpica-unix2-20181003/source/components/hardware/hwregs.c
 ===================================================================
---- acpica-unix2-20170224.orig/source/components/hardware/hwregs.c
-+++ acpica-unix2-20170224/source/components/hardware/hwregs.c
-@@ -464,7 +464,7 @@ AcpiHwClearAcpiStatus (
+--- acpica-unix2-20181003.orig/source/components/hardware/hwregs.c
++++ acpica-unix2-20181003/source/components/hardware/hwregs.c
+@@ -460,7 +460,7 @@ AcpiHwClearAcpiStatus (
  
  
      ACPI_DEBUG_PRINT ((ACPI_DB_IO, "About to write %04X to %8.8X%8.8X\n",
@@ -253,10 +196,10 @@ Index: acpica-unix2-20170224/source/components/hardware/hwregs.c
          ACPI_FORMAT_UINT64 (AcpiGbl_XPm1aStatus.Address)));
  
      LockFlags = AcpiOsAcquireLock (AcpiGbl_HardwareLock);
-Index: acpica-unix2-20170224/source/components/tables/tbfadt.c
+Index: acpica-unix2-20181003/source/components/tables/tbfadt.c
 ===================================================================
---- acpica-unix2-20170224.orig/source/components/tables/tbfadt.c
-+++ acpica-unix2-20170224/source/components/tables/tbfadt.c
+--- acpica-unix2-20181003.orig/source/components/tables/tbfadt.c
++++ acpica-unix2-20181003/source/components/tables/tbfadt.c
 @@ -233,7 +233,7 @@ AcpiTbInitGenericAddress (
          if (!(Flags & ACPI_FADT_GPE_REGISTER))
          {
@@ -275,7 +218,7 @@ Index: acpica-unix2-20170224/source/components/tables/tbfadt.c
              RegisterName, Address32, ACPI_FORMAT_UINT64 (Address64),
              AcpiGbl_Use32BitFadtAddresses ? 32 : 64));
  
-@@ -620,7 +620,7 @@ AcpiTbConvertFadt (
+@@ -628,7 +628,7 @@ AcpiTbConvertFadt (
  
                      ACPI_BIOS_WARNING ((AE_INFO,
                          "32/64X address mismatch in FADT/%s: "
@@ -284,10 +227,10 @@ Index: acpica-unix2-20170224/source/components/tables/tbfadt.c
                          Name, Address32,
                          ACPI_FORMAT_UINT64 (Address64->Address),
                          AcpiGbl_Use32BitFadtAddresses ? 32 : 64));
-Index: acpica-unix2-20170224/source/components/tables/tbxfroot.c
+Index: acpica-unix2-20181003/source/components/tables/tbxfroot.c
 ===================================================================
---- acpica-unix2-20170224.orig/source/components/tables/tbxfroot.c
-+++ acpica-unix2-20170224/source/components/tables/tbxfroot.c
+--- acpica-unix2-20181003.orig/source/components/tables/tbxfroot.c
++++ acpica-unix2-20181003/source/components/tables/tbxfroot.c
 @@ -177,7 +177,7 @@ AcpiFindRootPointer (
      {
          ACPI_ERROR ((AE_INFO,
@@ -315,11 +258,11 @@ Index: acpica-unix2-20170224/source/components/tables/tbxfroot.c
  
          return_ACPI_STATUS (AE_NO_MEMORY);
      }
-Index: acpica-unix2-20170224/source/components/utilities/utownerid.c
+Index: acpica-unix2-20181003/source/components/utilities/utownerid.c
 ===================================================================
---- acpica-unix2-20170224.orig/source/components/utilities/utownerid.c
-+++ acpica-unix2-20170224/source/components/utilities/utownerid.c
-@@ -231,7 +231,7 @@ AcpiUtReleaseOwnerId (
+--- acpica-unix2-20181003.orig/source/components/utilities/utownerid.c
++++ acpica-unix2-20181003/source/components/utilities/utownerid.c
+@@ -237,7 +237,7 @@ AcpiUtReleaseOwnerId (
      else
      {
          ACPI_ERROR ((AE_INFO,
@@ -328,16 +271,3 @@ Index: acpica-unix2-20170224/source/components/utilities/utownerid.c
      }
  
      (void) AcpiUtReleaseMutex (ACPI_MTX_CACHES);
-Index: acpica-unix2-20170224/source/tools/acpiexec/aemain.c
-===================================================================
---- acpica-unix2-20170224.orig/source/tools/acpiexec/aemain.c
-+++ acpica-unix2-20170224/source/tools/acpiexec/aemain.c
-@@ -203,7 +203,7 @@ AeDoOptions (
- 
-         if (strlen (AcpiGbl_Optarg) > (AE_BUFFER_SIZE -1))
-         {
--            printf ("**** The length of command line (%u) exceeded maximum (%u)\n",
-+            printf ("**** The length of command line (%u) exceeded maximum (%d)\n",
-                 (UINT32) strlen (AcpiGbl_Optarg), (AE_BUFFER_SIZE -1));
-             return (-1);
-         }
