@@ -5,14 +5,14 @@
 Summary:	ACPI Component Architecture - an assembler and disassembler for DSDT tables
 Summary(pl.UTF-8):	ACPI CA - asembler i disasembler dla tablic DSDT
 Name:		acpica
-Version:	20181031
+Version:	20200430
 Release:	1
 License:	GPL v2
 Group:		Development/Tools
 Source0:	https://acpica.org/sites/acpica/files/%{name}-unix-%{version}.tar.gz
-# Source0-md5:	cea3f668b536ec56ae878a3239035f26
+# Source0-md5:	7888f1e1e67f1bbaf33f1a869d1f0482
 Source1:	https://acpica.org/sites/acpica/files/acpitests-unix-%{version}.tar.gz
-# Source1-md5:	745791d46298c30cc7ee851ae045dbb0
+# Source1-md5:	69cb94daf85cd5d5bd374c077cf66499
 Source2:	iasl.1
 Source3:	acpibin.1
 Source4:	acpidump.1
@@ -24,12 +24,12 @@ Source9:	acpixtract.1
 Patch0:		debian-big_endian.patch
 Patch1:		debian-unaligned.patch
 Patch6:		int-format.patch
+Patch8:		facp.patch
 Patch9:		template.patch
-Patch10:	free.patch
-Patch12:	ppc64le.patch
-Patch13:	arm7hl.patch
+Patch11:	ppc64le.patch
+Patch12:	arm7hl.patch
+Patch13:	armv7-str-fixes.patch
 Patch14:	big-endian-v2.patch
-Patch15:	be-tpm2.patch
 Patch16:	mips-be-fix.patch
 Patch17:	cve-2017-13693.patch
 Patch18:	cve-2017-13694.patch
@@ -59,12 +59,12 @@ tar -x --strip-components=1 -f %{SOURCE1}
 %patch0 -p1
 %patch1 -p1
 %patch6 -p1
+%patch8 -p1
 %patch9 -p1
-%patch10 -p1
+%patch11 -p1
 %patch12 -p1
 %patch13 -p1
 %patch14 -p1
-%patch15 -p1
 %patch16 -p1
 %patch17 -p1
 %patch18 -p1

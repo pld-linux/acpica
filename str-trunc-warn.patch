@@ -1,8 +1,8 @@
-Index: acpica-unix2-20181003/source/compiler/aslanalyze.c
+Index: acpica-unix-20200214/source/compiler/aslanalyze.c
 ===================================================================
---- acpica-unix2-20181003.orig/source/compiler/aslanalyze.c
-+++ acpica-unix2-20181003/source/compiler/aslanalyze.c
-@@ -355,11 +355,16 @@ AnCheckMethodReturnValue (
+--- acpica-unix-20200214.orig/source/compiler/aslanalyze.c
++++ acpica-unix-20200214/source/compiler/aslanalyze.c
+@@ -358,11 +358,16 @@ AnCheckMethodReturnValue (
           */
          if (ThisNodeBtype != 0)
          {
@@ -20,11 +20,11 @@ Index: acpica-unix2-20181003/source/compiler/aslanalyze.c
 +	         free(strp);
          }
      }
- }
-Index: acpica-unix2-20181003/source/compiler/aslpredef.c
+ 
+Index: acpica-unix-20200214/source/compiler/aslpredef.c
 ===================================================================
---- acpica-unix2-20181003.orig/source/compiler/aslpredef.c
-+++ acpica-unix2-20181003/source/compiler/aslpredef.c
+--- acpica-unix-20200214.orig/source/compiler/aslpredef.c
++++ acpica-unix-20200214/source/compiler/aslpredef.c
 @@ -159,14 +159,19 @@ ApCheckForPredefinedMethod (
          if (MethodInfo->NumReturnNoValue &&
              ThisName->Info.ExpectedBtypes)
@@ -84,11 +84,11 @@ Index: acpica-unix2-20181003/source/compiler/aslpredef.c
      return (AE_TYPE);
  }
  
-Index: acpica-unix2-20181003/source/compiler/aslwalks.c
+Index: acpica-unix-20200214/source/compiler/aslwalks.c
 ===================================================================
---- acpica-unix2-20181003.orig/source/compiler/aslwalks.c
-+++ acpica-unix2-20181003/source/compiler/aslwalks.c
-@@ -507,15 +507,19 @@ AnOperandTypecheckWalkEnd (
+--- acpica-unix-20200214.orig/source/compiler/aslwalks.c
++++ acpica-unix-20200214/source/compiler/aslwalks.c
+@@ -515,15 +515,19 @@ AnOperandTypecheckWalkEnd (
              else if (!CommonBtypes)
              {
                  /* No match -- this is a type mismatch error */

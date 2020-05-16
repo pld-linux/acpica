@@ -1,8 +1,8 @@
-Index: acpica-unix-20180508/source/include/platform/aclinux.h
+Index: acpica-unix-20191213/source/include/platform/aclinux.h
 ===================================================================
---- acpica-unix-20180508.orig/source/include/platform/aclinux.h
-+++ acpica-unix-20180508/source/include/platform/aclinux.h
-@@ -228,9 +228,11 @@
+--- acpica-unix-20191213.orig/source/include/platform/aclinux.h
++++ acpica-unix-20191213/source/include/platform/aclinux.h
+@@ -233,9 +233,11 @@
  #define __cdecl
  #endif
  

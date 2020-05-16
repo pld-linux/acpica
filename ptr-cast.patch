@@ -1,7 +1,7 @@
-Index: acpica-unix-20180508/source/components/tables/tbutils.c
+Index: acpica-unix-20191213/source/components/tables/tbutils.c
 ===================================================================
---- acpica-unix-20180508.orig/source/components/tables/tbutils.c
-+++ acpica-unix-20180508/source/components/tables/tbutils.c
+--- acpica-unix-20191213.orig/source/components/tables/tbutils.c
++++ acpica-unix-20191213/source/components/tables/tbutils.c
 @@ -238,9 +238,11 @@ AcpiTbGetRootTableEntry (
           * 64-bit platform, XSDT: Move (unaligned) 64-bit to local,
           *  return 64-bit
@@ -32,10 +32,10 @@ Index: acpica-unix-20180508/source/components/tables/tbutils.c
      }
  }
  
-Index: acpica-unix-20180508/source/compiler/aslparseop.c
+Index: acpica-unix-20191213/source/compiler/aslparseop.c
 ===================================================================
---- acpica-unix-20180508.orig/source/compiler/aslparseop.c
-+++ acpica-unix-20180508/source/compiler/aslparseop.c
+--- acpica-unix-20191213.orig/source/compiler/aslparseop.c
++++ acpica-unix-20191213/source/compiler/aslparseop.c
 @@ -287,7 +287,11 @@ TrCreateValuedLeafOp (
          ParseOpcode == PARSEOP_NAMESEG ||
          ParseOpcode == PARSEOP_STRING_LITERAL)

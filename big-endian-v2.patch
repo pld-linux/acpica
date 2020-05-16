@@ -3,10 +3,10 @@ in the original big-endian patch; we try to capture those here.
 
 Signed-off-by: Al Stone <ahs3@redhat.com>
 
-Index: acpica-unix-20180508/source/compiler/asllookup.c
+Index: acpica-unix-20191213/source/compiler/asllookup.c
 ===================================================================
---- acpica-unix-20180508.orig/source/compiler/asllookup.c
-+++ acpica-unix-20180508/source/compiler/asllookup.c
+--- acpica-unix-20191213.orig/source/compiler/asllookup.c
++++ acpica-unix-20191213/source/compiler/asllookup.c
 @@ -249,7 +249,8 @@ LkIsObjectUsed (
       * ACPI names and are typically not referenced since they are meant
       * to be called by the host OS.

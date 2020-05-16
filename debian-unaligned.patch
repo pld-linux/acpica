@@ -14,10 +14,10 @@ Signed-off-by: Paolo Bonzini <pbonzini@redhat.com>
  source/include/actypes.h              |   26 +++++++++++++-------------
  3 files changed, 32 insertions(+), 21 deletions(-)
 
-Index: acpica-unix-20180508/source/components/executer/exoparg2.c
+Index: acpica-unix-20191213/source/components/executer/exoparg2.c
 ===================================================================
---- acpica-unix-20180508.orig/source/components/executer/exoparg2.c
-+++ acpica-unix-20180508/source/components/executer/exoparg2.c
+--- acpica-unix-20191213.orig/source/components/executer/exoparg2.c
++++ acpica-unix-20191213/source/components/executer/exoparg2.c
 @@ -172,6 +172,8 @@ AcpiExOpcode_2A_2T_1R (
      ACPI_OPERAND_OBJECT     **Operand = &WalkState->Operands[0];
      ACPI_OPERAND_OBJECT     *ReturnDesc1 = NULL;
@@ -58,10 +58,10 @@ Index: acpica-unix-20180508/source/components/executer/exoparg2.c
          break;
  
      case AML_CONCATENATE_OP: /* Concatenate (Data1, Data2, Result) */
-Index: acpica-unix-20180508/source/include/actypes.h
+Index: acpica-unix-20191213/source/include/actypes.h
 ===================================================================
---- acpica-unix-20180508.orig/source/include/actypes.h
-+++ acpica-unix-20180508/source/include/actypes.h
+--- acpica-unix-20191213.orig/source/include/actypes.h
++++ acpica-unix-20191213/source/include/actypes.h
 @@ -143,6 +143,19 @@ typedef COMPILER_DEPENDENT_INT64
   */
  #define ACPI_THREAD_ID                  UINT64

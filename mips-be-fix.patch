@@ -1,7 +1,7 @@
-Index: acpica-unix-20180508/source/compiler/aslparseop.c
+Index: acpica-unix-20191213/source/compiler/aslparseop.c
 ===================================================================
---- acpica-unix-20180508.orig/source/compiler/aslparseop.c
-+++ acpica-unix-20180508/source/compiler/aslparseop.c
+--- acpica-unix-20191213.orig/source/compiler/aslparseop.c
++++ acpica-unix-20191213/source/compiler/aslparseop.c
 @@ -283,7 +283,16 @@ TrCreateValuedLeafOp (
  
  
@@ -20,11 +20,11 @@ Index: acpica-unix-20180508/source/compiler/aslparseop.c
  
      DbgPrint (ASL_PARSE_OUTPUT,
          "\nCreateValuedLeafOp  Ln/Col %u/%u NewOp %p  "
-Index: acpica-unix-20180508/source/include/platform/aclinux.h
+Index: acpica-unix-20191213/source/include/platform/aclinux.h
 ===================================================================
---- acpica-unix-20180508.orig/source/include/platform/aclinux.h
-+++ acpica-unix-20180508/source/include/platform/aclinux.h
-@@ -227,10 +227,8 @@
+--- acpica-unix-20191213.orig/source/include/platform/aclinux.h
++++ acpica-unix-20191213/source/include/platform/aclinux.h
+@@ -232,10 +232,8 @@
  #endif
  
  #if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__

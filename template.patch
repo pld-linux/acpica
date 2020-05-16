@@ -7,16 +7,16 @@ From: Al Stone <ahs3@redhat.com>
  tests/templates/Makefile |    2 +-
  1 file changed, 1 insertion(+), 1 deletion(-)
 
-Index: acpica-unix2-20161222/tests/templates/Makefile
+Index: acpica-unix-20191213/tests/templates/Makefile
 ===================================================================
---- acpica-unix2-20161222.orig/tests/templates/Makefile
-+++ acpica-unix2-20161222/tests/templates/Makefile
-@@ -2,7 +2,7 @@
- PROG= templates
+--- acpica-unix-20191213.orig/tests/templates/Makefile
++++ acpica-unix-20191213/tests/templates/Makefile
+@@ -26,7 +26,7 @@ $(aml_obj): %.aml:  %.asl
+ 
  
  templates :
 -	sh templates.sh
 +	sh templates.sh 1
  
- clean :
- 	rm -f *.asl *.aml *.dsl *.hex diff.log
+ .PHONY: clean
+ clean:
