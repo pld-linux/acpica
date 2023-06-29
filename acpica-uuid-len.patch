@@ -1,0 +1,12 @@
+diff -Naur acpica-unix2-20211217.orig/source/tools/acpiexec/aeregion.c acpica-unix2-20211217/source/tools/acpiexec/aeregion.c
+--- acpica-unix2-20211217.orig/source/tools/acpiexec/aeregion.c	2021-12-17 10:48:17.000000000 -0700
++++ acpica-unix2-20211217/source/tools/acpiexec/aeregion.c	2022-03-18 15:53:25.032687782 -0600
+@@ -97,7 +97,7 @@
+     UINT32                  Value1;
+     UINT32                  Value2;
+     ACPI_RESOURCE           *Resource;
+-    char                    Uuid[ACPI_PRM_INPUT_BUFFER_SIZE + 1];
++    char                    Uuid[UUID_STRING_LENGTH + 1];
+ 
+ 
+     ACPI_FUNCTION_NAME (AeRegionHandler);

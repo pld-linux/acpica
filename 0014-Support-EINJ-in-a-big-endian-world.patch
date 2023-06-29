@@ -1,0 +1,32 @@
+From 70d1047abe010c80c2dd74f6afdc7005b91e6163 Mon Sep 17 00:00:00 2001
+From: Al Stone <ahs3@redhat.com>
+Date: Sat, 19 Sep 2020 15:50:19 -0600
+Subject: [PATCH 14/45] Support EINJ in a big-endian world
+
+Signed-off-by: Al Stone <ahs3@redhat.com>
+---
+ source/common/dmtbdump1.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+Index: acpica-unix2-20220331/source/common/dmtbdump1.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/common/dmtbdump1.c
++++ acpica-unix2-20220331/source/common/dmtbdump1.c
+@@ -1183,7 +1183,7 @@ AcpiDmDumpEinj (
+ {
+     ACPI_STATUS             Status;
+     ACPI_WHEA_HEADER        *Subtable;
+-    UINT32                  Length = Table->Length;
++    UINT32                  Length = AcpiUtReadUint32 (&Table->Length);
+     UINT32                  Offset = sizeof (ACPI_TABLE_EINJ);
+ 
+ 
+@@ -1198,7 +1198,7 @@ AcpiDmDumpEinj (
+     /* Subtables */
+ 
+     Subtable = ACPI_ADD_PTR (ACPI_WHEA_HEADER, Table, Offset);
+-    while (Offset < Table->Length)
++    while (Offset < Length)
+     {
+         AcpiOsPrintf ("\n");
+         Status = AcpiDmDumpTable (Length, Offset, Subtable,

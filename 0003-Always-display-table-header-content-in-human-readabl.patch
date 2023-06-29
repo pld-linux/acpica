@@ -1,0 +1,45 @@
+From 62cc2f4ae212bd0fad83f643921ac216ebb9a986 Mon Sep 17 00:00:00 2001
+From: Al Stone <ahs3@redhat.com>
+Date: Fri, 18 Sep 2020 15:20:37 -0600
+Subject: [PATCH 03/45] Always display table header content in human-readable
+ form
+
+When comparing two binary data tables, little-endian values are read
+from each table header and printed out.  Make sure they show up in a
+form that makes sense to humans.
+
+Signed-off-by: Al Stone <ahs3@redhat.com>
+---
+ source/tools/acpibin/abcompare.c | 7 ++++---
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+Index: acpica-unix2-20220331/source/tools/acpibin/abcompare.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/tools/acpibin/abcompare.c
++++ acpica-unix2-20220331/source/tools/acpibin/abcompare.c
+@@ -42,6 +42,7 @@
+  */
+ 
+ #include "acpibin.h"
++#include "acutils.h"
+ 
+ 
+ ACPI_TABLE_HEADER           Header1;
+@@ -179,14 +180,14 @@ AbPrintHeadersInfo (
+     /* Display header information for both headers */
+ 
+     printf ("Signature          %8.4s : %4.4s\n",    Header->Signature, Header2->Signature);
+-    printf ("Length             %8.8X : %8.8X\n",    Header->Length, Header2->Length);
++    printf ("Length             %8.8X : %8.8X\n",    AcpiUtReadUint32 (&Header->Length), AcpiUtReadUint32 (&Header2->Length));
+     printf ("Revision           %8.2X : %2.2X\n",    Header->Revision, Header2->Revision);
+     printf ("Checksum           %8.2X : %2.2X\n",    Header->Checksum, Header2->Checksum);
+     printf ("OEM ID             %8.6s : %.6s\n",     Header->OemId, Header2->OemId);
+     printf ("OEM Table ID       %8.8s : %.8s\n",     Header->OemTableId, Header2->OemTableId);
+-    printf ("OEM Revision       %8.8X : %8.8X\n",    Header->OemRevision, Header2->OemRevision);
++    printf ("OEM Revision       %8.8X : %8.8X\n",    AcpiUtReadUint32 (&Header->OemRevision), AcpiUtReadUint32 (&Header2->OemRevision));
+     printf ("ASL Compiler ID    %8.4s : %.4s\n",     Header->AslCompilerId, Header2->AslCompilerId);
+-    printf ("Compiler Revision  %8.8X : %8.8X\n",    Header->AslCompilerRevision, Header2->AslCompilerRevision);
++    printf ("Compiler Revision  %8.8X : %8.8X\n",    AcpiUtReadUint32 (&Header->AslCompilerRevision), AcpiUtReadUint32 (&Header2->AslCompilerRevision));
+     printf ("\n");
+ }
+ 

@@ -1,0 +1,189 @@
+From b3051bc2bad8988f3ad81a8307de6f1d0eef4ace Mon Sep 17 00:00:00 2001
+From: Al Stone <ahs3@redhat.com>
+Date: Sun, 20 Sep 2020 11:42:21 -0600
+Subject: [PATCH 16/45] Support FADT (aka, FACP) in a big-endian world
+
+Signed-off-by: Al Stone <ahs3@redhat.com>
+---
+ source/common/dmtbdump.c          | 25 ++++++++++++-----------
+ source/components/tables/tbfadt.c | 34 +++++++++++++++++++++++--------
+ 2 files changed, 38 insertions(+), 21 deletions(-)
+
+Index: acpica-unix2-20220331/source/common/dmtbdump.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/common/dmtbdump.c
++++ acpica-unix2-20220331/source/common/dmtbdump.c
+@@ -417,11 +417,12 @@ AcpiDmDumpFadt (
+     ACPI_TABLE_HEADER       *Table)
+ {
+     ACPI_STATUS             Status;
++    UINT32                  TableLength = AcpiUtReadUint32 (&Table->Length);
+ 
+ 
+     /* Always dump the minimum FADT revision 1 fields (ACPI 1.0) */
+ 
+-    Status = AcpiDmDumpTable (Table->Length, 0, Table, 0,
++    Status = AcpiDmDumpTable (TableLength, 0, Table, 0,
+         AcpiDmTableInfoFadt1);
+     if (ACPI_FAILURE (Status))
+     {
+@@ -430,10 +431,10 @@ AcpiDmDumpFadt (
+ 
+     /* Check for FADT revision 2 fields (ACPI 1.0B MS extensions) */
+ 
+-    if ((Table->Length > ACPI_FADT_V1_SIZE) &&
+-        (Table->Length <= ACPI_FADT_V2_SIZE))
++    if ((TableLength > ACPI_FADT_V1_SIZE) &&
++        (TableLength <= ACPI_FADT_V2_SIZE))
+     {
+-        Status = AcpiDmDumpTable (Table->Length, 0, Table, 0,
++        Status = AcpiDmDumpTable (TableLength, 0, Table, 0,
+             AcpiDmTableInfoFadt2);
+         if (ACPI_FAILURE (Status))
+         {
+@@ -443,9 +444,9 @@ AcpiDmDumpFadt (
+ 
+     /* Check for FADT revision 3/4 fields and up (ACPI 2.0+ extended data) */
+ 
+-    else if (Table->Length > ACPI_FADT_V2_SIZE)
++    else if (TableLength > ACPI_FADT_V2_SIZE)
+     {
+-        Status = AcpiDmDumpTable (Table->Length, 0, Table, 0,
++        Status = AcpiDmDumpTable (TableLength, 0, Table, 0,
+             AcpiDmTableInfoFadt3);
+         if (ACPI_FAILURE (Status))
+         {
+@@ -454,9 +455,9 @@ AcpiDmDumpFadt (
+ 
+         /* Check for FADT revision 5 fields and up (ACPI 5.0+) */
+ 
+-        if (Table->Length > ACPI_FADT_V3_SIZE)
++        if (TableLength > ACPI_FADT_V3_SIZE)
+         {
+-            Status = AcpiDmDumpTable (Table->Length, 0, Table, 0,
++            Status = AcpiDmDumpTable (TableLength, 0, Table, 0,
+                 AcpiDmTableInfoFadt5);
+             if (ACPI_FAILURE (Status))
+             {
+@@ -466,9 +467,9 @@ AcpiDmDumpFadt (
+ 
+         /* Check for FADT revision 6 fields and up (ACPI 6.0+) */
+ 
+-        if (Table->Length > ACPI_FADT_V3_SIZE)
++        if (TableLength > ACPI_FADT_V3_SIZE)
+         {
+-            Status = AcpiDmDumpTable (Table->Length, 0, Table, 0,
++            Status = AcpiDmDumpTable (TableLength, 0, Table, 0,
+                 AcpiDmTableInfoFadt6);
+             if (ACPI_FAILURE (Status))
+             {
+@@ -479,11 +480,11 @@ AcpiDmDumpFadt (
+ 
+     /* Validate various fields in the FADT, including length */
+ 
+-    AcpiTbCreateLocalFadt (Table, Table->Length);
++    AcpiTbCreateLocalFadt (Table, TableLength);
+ 
+     /* Validate FADT length against the revision */
+ 
+-    AcpiDmValidateFadtLength (Table->Revision, Table->Length);
++    AcpiDmValidateFadtLength (Table->Revision, TableLength);
+ }
+ 
+ 
+Index: acpica-unix2-20220331/source/components/tables/tbfadt.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/components/tables/tbfadt.c
++++ acpica-unix2-20220331/source/components/tables/tbfadt.c
+@@ -289,7 +289,6 @@ AcpiTbSelectAddress (
+     UINT32                  Address32,
+     UINT64                  Address64)
+ {
+-
+     if (!Address64)
+     {
+         /* 64-bit address is zero, use 32-bit address */
+@@ -520,6 +519,9 @@ AcpiTbConvertFadt (
+     UINT8                   Length;
+     UINT8                   Flags;
+     UINT32                  i;
++    UINT32                  Tmp;
++    UINT32                  Value32;
++    UINT64                  Value64;
+ 
+ 
+     /*
+@@ -533,7 +535,7 @@ AcpiTbConvertFadt (
+      * Note: The FADT revision value is unreliable. Only the length can be
+      * trusted.
+      */
+-    if (AcpiGbl_FADT.Header.Length <= ACPI_FADT_V2_SIZE)
++    if (AcpiUtReadUint32 (&AcpiGbl_FADT.Header.Length) <= ACPI_FADT_V2_SIZE)
+     {
+         AcpiGbl_FADT.PreferredProfile = 0;
+         AcpiGbl_FADT.PstateControl = 0;
+@@ -546,14 +548,19 @@ AcpiTbConvertFadt (
+      * current FADT version as defined by the ACPI specification.
+      * Thus, we will have a common FADT internally.
+      */
+-    AcpiGbl_FADT.Header.Length = sizeof (ACPI_TABLE_FADT);
++    Tmp = sizeof (ACPI_TABLE_FADT);
++    AcpiUtWriteUint (&AcpiGbl_FADT.Header.Length, sizeof (UINT32),
++            &Tmp, sizeof (UINT32));
+ 
+     /*
+      * Expand the 32-bit DSDT addresses to 64-bit as necessary.
+      * Later ACPICA code will always use the X 64-bit field.
+      */
+-    AcpiGbl_FADT.XDsdt = AcpiTbSelectAddress ("DSDT",
+-        AcpiGbl_FADT.Dsdt, AcpiGbl_FADT.XDsdt);
++    Value32 = AcpiUtReadUint32 (&AcpiGbl_FADT.Dsdt);
++    Value64 = AcpiUtReadUint64 (&AcpiGbl_FADT.XDsdt);
++    Value64 = AcpiTbSelectAddress ("DSDT", Value32, Value64);
++    AcpiUtWriteUint (&AcpiGbl_FADT.XDsdt, sizeof (UINT64),
++                &Value64, sizeof (UINT64));
+ 
+     /* If Hardware Reduced flag is set, we are all done */
+ 
+@@ -614,7 +621,11 @@ AcpiTbConvertFadt (
+         {
+             if (Address64->Address)
+             {
+-                if (Address64->Address != (UINT64) Address32)
++                Value32 = AcpiUtReadUint32 (&Address32);
++                Value64 = AcpiUtReadUint64 (&Address64->Address);
++
++                /* if (Address64->Address != (UINT64) Address32) */
++                if (Value64 != (UINT64) Value32)
+                 {
+                     /* Address mismatch */
+ 
+@@ -655,9 +666,10 @@ AcpiTbConvertFadt (
+              */
+             if (!Address64->Address || AcpiGbl_Use32BitFadtAddresses)
+             {
++                Value32 = AcpiUtReadUint32 (&Address32);
+                 AcpiTbInitGenericAddress (Address64,
+                     ACPI_ADR_SPACE_SYSTEM_IO, Length,
+-                    (UINT64) Address32, Name, Flags);
++                    (UINT64) Value32, Name, Flags);
+             }
+         }
+ 
+@@ -780,10 +792,14 @@ AcpiTbSetupFadtRegisters (
+ 
+         if (Source64->Address)
+         {
++            UINT64 Address64;
++
++            Address64 = AcpiUtReadUint64 (&Source64->Address);
++            Address64 +=
++                (FadtPmInfoTable[i].RegisterNum * Pm1RegisterByteWidth);
+             AcpiTbInitGenericAddress (FadtPmInfoTable[i].Target,
+                 Source64->SpaceId, Pm1RegisterByteWidth,
+-                Source64->Address +
+-                    (FadtPmInfoTable[i].RegisterNum * Pm1RegisterByteWidth),
++                Address64,
+                 "PmRegisters", 0);
+         }
+     }

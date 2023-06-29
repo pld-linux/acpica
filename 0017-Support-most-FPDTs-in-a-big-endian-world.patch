@@ -1,0 +1,85 @@
+From 35f533074fb78d52e87c5a14406a136480a6fe62 Mon Sep 17 00:00:00 2001
+From: Al Stone <ahs3@redhat.com>
+Date: Tue, 22 Sep 2020 17:51:45 -0600
+Subject: [PATCH 17/45] Support most FPDTs in a big-endian world
+
+NB: there is no support for vendor specific records even in
+the little-endian version.
+
+Signed-off-by: Al Stone <ahs3@redhat.com>
+---
+ source/common/dmtbdump1.c  | 12 +++++++-----
+ source/compiler/dttable1.c |  4 +++-
+ 2 files changed, 10 insertions(+), 6 deletions(-)
+
+Index: acpica-unix2-20220331/source/common/dmtbdump1.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/common/dmtbdump1.c
++++ acpica-unix2-20220331/source/common/dmtbdump1.c
+@@ -1289,9 +1289,10 @@ AcpiDmDumpFpdt (
+ {
+     ACPI_STATUS             Status;
+     ACPI_FPDT_HEADER        *Subtable;
+-    UINT32                  Length = Table->Length;
++    UINT32                  TableLength = AcpiUtReadUint32 (&Table->Length);
+     UINT32                  Offset = sizeof (ACPI_TABLE_FPDT);
+     ACPI_DMTABLE_INFO       *InfoTable;
++    UINT16                  SubtableType;
+ 
+ 
+     /* There is no main table (other than the standard ACPI header) */
+@@ -1299,19 +1300,20 @@ AcpiDmDumpFpdt (
+     /* Subtables */
+ 
+     Subtable = ACPI_ADD_PTR (ACPI_FPDT_HEADER, Table, Offset);
+-    while (Offset < Table->Length)
++    while (Offset < TableLength)
+     {
+         /* Common subtable header */
+ 
+         AcpiOsPrintf ("\n");
+-        Status = AcpiDmDumpTable (Length, Offset, Subtable,
++        Status = AcpiDmDumpTable (TableLength, Offset, Subtable,
+             Subtable->Length, AcpiDmTableInfoFpdtHdr);
+         if (ACPI_FAILURE (Status))
+         {
+             return;
+         }
+ 
+-        switch (Subtable->Type)
++        SubtableType = AcpiUtReadUint16 (&Subtable->Type);
++        switch (SubtableType)
+         {
+         case ACPI_FPDT_TYPE_BOOT:
+ 
+@@ -1338,7 +1340,7 @@ AcpiDmDumpFpdt (
+             goto NextSubtable;
+         }
+ 
+-        Status = AcpiDmDumpTable (Length, Offset, Subtable,
++        Status = AcpiDmDumpTable (TableLength, Offset, Subtable,
+             Subtable->Length, InfoTable);
+         if (ACPI_FAILURE (Status))
+         {
+Index: acpica-unix2-20220331/source/compiler/dttable1.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/compiler/dttable1.c
++++ acpica-unix2-20220331/source/compiler/dttable1.c
+@@ -1493,6 +1493,7 @@ DtCompileFpdt (
+     ACPI_DMTABLE_INFO       *InfoTable;
+     DT_FIELD                **PFieldList = (DT_FIELD **) List;
+     DT_FIELD                *SubtableStart;
++    UINT16                  SubtableType;
+ 
+ 
+     while (*PFieldList)
+@@ -1511,7 +1512,8 @@ DtCompileFpdt (
+ 
+         FpdtHeader = ACPI_CAST_PTR (ACPI_FPDT_HEADER, Subtable->Buffer);
+ 
+-        switch (FpdtHeader->Type)
++        SubtableType = AcpiUtReadUint16 (&FpdtHeader->Type);
++        switch (SubtableType)
+         {
+         case ACPI_FPDT_TYPE_BOOT:
+ 

@@ -1,0 +1,112 @@
+From bcdec27f562b0df37546b5e8ad2eab76348062eb Mon Sep 17 00:00:00 2001
+From: Al Stone <ahs3@redhat.com>
+Date: Sat, 19 Sep 2020 15:44:06 -0600
+Subject: [PATCH 13/45] Support DRTM in a big-endian world
+
+Signed-off-by: Al Stone <ahs3@redhat.com>
+---
+ source/common/dmtbdump1.c  | 25 +++++++++++++++----------
+ source/compiler/dttable1.c |  6 ++++--
+ 2 files changed, 19 insertions(+), 12 deletions(-)
+
+Index: acpica-unix2-20220331/source/common/dmtbdump1.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/common/dmtbdump1.c
++++ acpica-unix2-20220331/source/common/dmtbdump1.c
+@@ -1071,11 +1071,14 @@ AcpiDmDumpDrtm (
+     ACPI_DRTM_RESOURCE_LIST *DrtmRl;
+     ACPI_DRTM_DPS_ID        *DrtmDps;
+     UINT32                  Count;
++    UINT32                  ResourceCount;
++    UINT32                  ValidatedTableCount;
++    UINT32                  TableLength = AcpiUtReadUint32 (&Table->Length);
+ 
+ 
+     /* Main table */
+ 
+-    Status = AcpiDmDumpTable (Table->Length, 0, Table, 0,
++    Status = AcpiDmDumpTable (TableLength, 0, Table, 0,
+         AcpiDmTableInfoDrtm);
+     if (ACPI_FAILURE (Status))
+     {
+@@ -1090,7 +1093,7 @@ AcpiDmDumpDrtm (
+ 
+     DrtmVtl = ACPI_ADD_PTR (ACPI_DRTM_VTABLE_LIST, Table, Offset);
+     AcpiOsPrintf ("\n");
+-    Status = AcpiDmDumpTable (Table->Length, Offset,
++    Status = AcpiDmDumpTable (TableLength, Offset,
+         DrtmVtl, ACPI_OFFSET (ACPI_DRTM_VTABLE_LIST, ValidatedTables),
+         AcpiDmTableInfoDrtm0);
+     if (ACPI_FAILURE (Status))
+@@ -1103,10 +1106,11 @@ AcpiDmDumpDrtm (
+     /* Dump Validated table addresses */
+ 
+     Count = 0;
+-    while ((Offset < Table->Length) &&
+-            (DrtmVtl->ValidatedTableCount > Count))
++    ValidatedTableCount = AcpiUtReadUint32 (&DrtmVtl->ValidatedTableCount);
++    while ((Offset < TableLength) &&
++            (ValidatedTableCount > Count))
+     {
+-        Status = AcpiDmDumpTable (Table->Length, Offset,
++        Status = AcpiDmDumpTable (TableLength, Offset,
+             ACPI_ADD_PTR (void, Table, Offset), sizeof (UINT64),
+             AcpiDmTableInfoDrtm0a);
+         if (ACPI_FAILURE (Status))
+@@ -1122,7 +1126,7 @@ AcpiDmDumpDrtm (
+ 
+     DrtmRl = ACPI_ADD_PTR (ACPI_DRTM_RESOURCE_LIST, Table, Offset);
+     AcpiOsPrintf ("\n");
+-    Status = AcpiDmDumpTable (Table->Length, Offset,
++    Status = AcpiDmDumpTable (TableLength, Offset,
+         DrtmRl, ACPI_OFFSET (ACPI_DRTM_RESOURCE_LIST, Resources),
+         AcpiDmTableInfoDrtm1);
+     if (ACPI_FAILURE (Status))
+@@ -1135,10 +1139,11 @@ AcpiDmDumpDrtm (
+     /* Dump the Resource List */
+ 
+     Count = 0;
+-    while ((Offset < Table->Length) &&
+-           (DrtmRl->ResourceCount > Count))
++    ResourceCount = AcpiUtReadUint32 (&DrtmRl->ResourceCount);
++    while ((Offset < TableLength) &&
++           (ResourceCount > Count))
+     {
+-        Status = AcpiDmDumpTable (Table->Length, Offset,
++        Status = AcpiDmDumpTable (TableLength, Offset,
+             ACPI_ADD_PTR (void, Table, Offset),
+             sizeof (ACPI_DRTM_RESOURCE), AcpiDmTableInfoDrtm1a);
+         if (ACPI_FAILURE (Status))
+@@ -1154,7 +1159,7 @@ AcpiDmDumpDrtm (
+ 
+     DrtmDps = ACPI_ADD_PTR (ACPI_DRTM_DPS_ID, Table, Offset);
+     AcpiOsPrintf ("\n");
+-    (void) AcpiDmDumpTable (Table->Length, Offset,
++    (void) AcpiDmDumpTable (TableLength, Offset,
+         DrtmDps, sizeof (ACPI_DRTM_DPS_ID), AcpiDmTableInfoDrtm2);
+ }
+ 
+Index: acpica-unix2-20220331/source/compiler/dttable1.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/compiler/dttable1.c
++++ acpica-unix2-20220331/source/compiler/dttable1.c
+@@ -1217,7 +1217,8 @@ DtCompileDrtm (
+         Count++;
+     }
+ 
+-    DrtmVtl->ValidatedTableCount = Count;
++    AcpiUtWriteUint (&DrtmVtl->ValidatedTableCount, sizeof (UINT32),
++            &Count, sizeof (UINT32));
+     DtPopSubtable ();
+     ParentTable = DtPeekSubtable ();
+ 
+@@ -1255,7 +1256,8 @@ DtCompileDrtm (
+         Count++;
+     }
+ 
+-    DrtmRl->ResourceCount = Count;
++    AcpiUtWriteUint(&DrtmRl->ResourceCount, sizeof(UINT32),
++            &Count, sizeof(UINT32));
+     DtPopSubtable ();
+     ParentTable = DtPeekSubtable ();
+ 

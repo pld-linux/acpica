@@ -1,0 +1,32 @@
+From 7b107ab7348d903108140f6033e90596b12325c4 Mon Sep 17 00:00:00 2001
+From: Al Stone <ahs3@redhat.com>
+Date: Thu, 15 Oct 2020 12:12:11 -0600
+Subject: [PATCH 08/45] Support MADT (aka APIC) in a big-endian world
+
+Signed-off-by: Al Stone <ahs3@redhat.com>
+---
+ source/common/dmtbdump2.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+Index: acpica-unix2-20220331/source/common/dmtbdump2.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/common/dmtbdump2.c
++++ acpica-unix2-20220331/source/common/dmtbdump2.c
+@@ -763,7 +763,7 @@ AcpiDmDumpMadt (
+ {
+     ACPI_STATUS             Status;
+     ACPI_SUBTABLE_HEADER    *Subtable;
+-    UINT32                  Length = Table->Length;
++    UINT32                  Length = AcpiUtReadUint32 (&Table->Length);
+     UINT32                  Offset = sizeof (ACPI_TABLE_MADT);
+     ACPI_DMTABLE_INFO       *InfoTable;
+ 
+@@ -781,7 +781,7 @@ AcpiDmDumpMadt (
+     Subtable = ACPI_ADD_PTR (ACPI_SUBTABLE_HEADER, Table, Offset);
+     DbgPrint (ASL_PARSE_OUTPUT, "//0B) Offset %X, from table start: 0x%8.8X%8.8X\n",
+         Offset, ACPI_FORMAT_UINT64 (ACPI_CAST_PTR (char, Subtable) - ACPI_CAST_PTR (char, Table)));
+-    while (Offset < Table->Length)
++    while (Offset < Length)
+     {
+         /* Common subtable header */
+ 

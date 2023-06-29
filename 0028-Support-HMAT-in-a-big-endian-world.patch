@@ -1,0 +1,278 @@
+From 915b8b70726fd01befdeac0c8630db528ac40552 Mon Sep 17 00:00:00 2001
+From: Al Stone <ahs3@redhat.com>
+Date: Fri, 25 Sep 2020 16:56:55 -0600
+Subject: [PATCH 28/45] Support HMAT in a big-endian world
+
+Signed-off-by: Al Stone <ahs3@redhat.com>
+---
+ source/common/dmtbdump1.c  | 70 ++++++++++++++++++++++----------------
+ source/compiler/dttable1.c | 24 ++++++++++---
+ 2 files changed, 59 insertions(+), 35 deletions(-)
+
+Index: acpica-unix2-20220331/source/common/dmtbdump1.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/common/dmtbdump1.c
++++ acpica-unix2-20220331/source/common/dmtbdump1.c
+@@ -1680,37 +1680,45 @@ AcpiDmDumpHmat (
+     UINT32                  Length;
+     ACPI_DMTABLE_INFO       *InfoTable;
+     UINT32                  i, j;
++    UINT32                  TableLength = AcpiUtReadUint32 (&Table->Length);
++    UINT16                  HmatStructType;
++    UINT32                  HmatStructLength;
++    UINT32                  InitPDs;
++    UINT32                  TgtPDs;
++    UINT16                  SMBIOSHandles;
+ 
+ 
+     /* Main table */
+ 
+-    Status = AcpiDmDumpTable (Table->Length, 0, Table, 0, AcpiDmTableInfoHmat);
++    Status = AcpiDmDumpTable (TableLength, 0, Table, 0, AcpiDmTableInfoHmat);
+     if (ACPI_FAILURE (Status))
+     {
+         return;
+     }
+     Offset = sizeof (ACPI_TABLE_HMAT);
+ 
+-    while (Offset < Table->Length)
++    while (Offset < TableLength)
+     {
+         AcpiOsPrintf ("\n");
+ 
+         /* Dump HMAT structure header */
+ 
+         HmatStruct = ACPI_ADD_PTR (ACPI_HMAT_STRUCTURE, Table, Offset);
+-        if (HmatStruct->Length < sizeof (ACPI_HMAT_STRUCTURE))
++        HmatStructLength = AcpiUtReadUint32 (&HmatStruct->Length);
++        if (HmatStructLength < sizeof (ACPI_HMAT_STRUCTURE))
+         {
+             AcpiOsPrintf ("Invalid HMAT structure length\n");
+             return;
+         }
+-        Status = AcpiDmDumpTable (Table->Length, Offset, HmatStruct,
+-            HmatStruct->Length, AcpiDmTableInfoHmatHdr);
++        Status = AcpiDmDumpTable (TableLength, Offset, HmatStruct,
++            HmatStructLength, AcpiDmTableInfoHmatHdr);
+         if (ACPI_FAILURE (Status))
+         {
+             return;
+         }
+ 
+-        switch (HmatStruct->Type)
++        HmatStructType = AcpiUtReadUint16 (&HmatStruct->Type);
++        switch (HmatStructType)
+         {
+         case ACPI_HMAT_TYPE_ADDRESS_RANGE:
+ 
+@@ -1733,7 +1741,7 @@ AcpiDmDumpHmat (
+         default:
+ 
+             AcpiOsPrintf ("\n**** Unknown HMAT structure type 0x%X\n",
+-                HmatStruct->Type);
++                HmatStructType);
+ 
+             /* Attempt to continue */
+ 
+@@ -1742,13 +1750,13 @@ AcpiDmDumpHmat (
+ 
+         /* Dump HMAT structure body */
+ 
+-        if (HmatStruct->Length < Length)
++        if (HmatStructLength < Length)
+         {
+             AcpiOsPrintf ("Invalid HMAT structure length\n");
+             return;
+         }
+-        Status = AcpiDmDumpTable (Table->Length, Offset, HmatStruct,
+-            HmatStruct->Length, InfoTable);
++        Status = AcpiDmDumpTable (TableLength, Offset, HmatStruct,
++            HmatStructLength, InfoTable);
+         if (ACPI_FAILURE (Status))
+         {
+             return;
+@@ -1756,7 +1764,7 @@ AcpiDmDumpHmat (
+ 
+         /* Dump HMAT structure additionals */
+ 
+-        switch (HmatStruct->Type)
++        switch (HmatStructType)
+         {
+         case ACPI_HMAT_TYPE_LOCALITY:
+ 
+@@ -1765,15 +1773,16 @@ AcpiDmDumpHmat (
+ 
+             /* Dump initiator proximity domains */
+ 
+-            if ((UINT32)(HmatStruct->Length - SubtableOffset) <
+-                (UINT32)(HmatLocality->NumberOfInitiatorPDs * 4))
++            InitPDs = AcpiUtReadUint32 (&HmatLocality->NumberOfInitiatorPDs);
++            if ((UINT32) (HmatStructLength - SubtableOffset) <
++                (UINT32) (InitPDs * 4))
+             {
+                 AcpiOsPrintf ("Invalid initiator proximity domain number\n");
+                 return;
+             }
+-            for (i = 0; i < HmatLocality->NumberOfInitiatorPDs; i++)
++            for (i = 0; i < InitPDs; i++)
+             {
+-                Status = AcpiDmDumpTable (Table->Length, Offset + SubtableOffset,
++                Status = AcpiDmDumpTable (TableLength, Offset + SubtableOffset,
+                     ACPI_ADD_PTR (ACPI_HMAT_STRUCTURE, HmatStruct, SubtableOffset),
+                     4, AcpiDmTableInfoHmat1a);
+                 if (ACPI_FAILURE (Status))
+@@ -1786,15 +1795,16 @@ AcpiDmDumpHmat (
+ 
+             /* Dump target proximity domains */
+ 
+-            if ((UINT32)(HmatStruct->Length - SubtableOffset) <
+-                (UINT32)(HmatLocality->NumberOfTargetPDs * 4))
++            TgtPDs = AcpiUtReadUint32 (&HmatLocality->NumberOfTargetPDs);
++            if ((UINT32) (HmatStructLength - SubtableOffset) <
++                (UINT32) (TgtPDs * 4))
+             {
+                 AcpiOsPrintf ("Invalid target proximity domain number\n");
+                 return;
+             }
+-            for (i = 0; i < HmatLocality->NumberOfTargetPDs; i++)
++            for (i = 0; i < TgtPDs; i++)
+             {
+-                Status = AcpiDmDumpTable (Table->Length, Offset + SubtableOffset,
++                Status = AcpiDmDumpTable (TableLength, Offset + SubtableOffset,
+                     ACPI_ADD_PTR (ACPI_HMAT_STRUCTURE, HmatStruct, SubtableOffset),
+                     4, AcpiDmTableInfoHmat1b);
+                 if (ACPI_FAILURE (Status))
+@@ -1807,18 +1817,17 @@ AcpiDmDumpHmat (
+ 
+             /* Dump latency/bandwidth entris */
+ 
+-            if ((UINT32)(HmatStruct->Length - SubtableOffset) <
+-                (UINT32)(HmatLocality->NumberOfInitiatorPDs *
+-                         HmatLocality->NumberOfTargetPDs * 2))
++            if ((UINT32) (HmatStructLength - SubtableOffset) <
++                (UINT32) (InitPDs * TgtPDs * 2))
+             {
+                 AcpiOsPrintf ("Invalid latency/bandwidth entry number\n");
+                 return;
+             }
+-            for (i = 0; i < HmatLocality->NumberOfInitiatorPDs; i++)
++            for (i = 0; i < InitPDs; i++)
+             {
+-                for (j = 0; j < HmatLocality->NumberOfTargetPDs; j++)
++                for (j = 0; j < TgtPDs; j++)
+                 {
+-                    Status = AcpiDmDumpTable (Table->Length, Offset + SubtableOffset,
++                    Status = AcpiDmDumpTable (TableLength, Offset + SubtableOffset,
+                         ACPI_ADD_PTR (ACPI_HMAT_STRUCTURE, HmatStruct, SubtableOffset),
+                         2, AcpiDmTableInfoHmat1c);
+                     if (ACPI_FAILURE(Status))
+@@ -1838,15 +1847,16 @@ AcpiDmDumpHmat (
+ 
+             /* Dump SMBIOS handles */
+ 
+-            if ((UINT32)(HmatStruct->Length - SubtableOffset) <
+-                (UINT32)(HmatCache->NumberOfSMBIOSHandles * 2))
++            SMBIOSHandles = AcpiUtReadUint16 (&HmatCache->NumberOfSMBIOSHandles);
++            if ((UINT32) (HmatStructLength - SubtableOffset) <
++                (UINT32) (SMBIOSHandles * 2))
+             {
+                 AcpiOsPrintf ("Invalid SMBIOS handle number\n");
+                 return;
+             }
+-            for (i = 0; i < HmatCache->NumberOfSMBIOSHandles; i++)
++            for (i = 0; i < SMBIOSHandles; i++)
+             {
+-                Status = AcpiDmDumpTable (Table->Length, Offset + SubtableOffset,
++                Status = AcpiDmDumpTable (TableLength, Offset + SubtableOffset,
+                     ACPI_ADD_PTR (ACPI_HMAT_STRUCTURE, HmatStruct, SubtableOffset),
+                     2, AcpiDmTableInfoHmat2a);
+                 if (ACPI_FAILURE (Status))
+@@ -1866,6 +1876,6 @@ AcpiDmDumpHmat (
+ NextSubtable:
+         /* Point to next HMAT structure subtable */
+ 
+-        Offset += (HmatStruct->Length);
++        Offset += (HmatStructLength);
+     }
+ }
+Index: acpica-unix2-20220331/source/compiler/dttable1.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/compiler/dttable1.c
++++ acpica-unix2-20220331/source/compiler/dttable1.c
+@@ -1737,6 +1737,8 @@ DtCompileHmat (
+     UINT32                  TgtPDNumber;
+     UINT64                  EntryNumber;
+     UINT16                  SMBIOSHandleNumber;
++    UINT16                  HmatStructType;
++    UINT32                  Length;
+ 
+ 
+     ParentTable = DtPeekSubtable ();
+@@ -1767,7 +1769,8 @@ DtCompileHmat (
+ 
+         /* Compile HMAT structure body */
+ 
+-        switch (HmatStruct->Type)
++        HmatStructType = AcpiUtReadUint16 (&HmatStruct->Type);
++        switch (HmatStructType)
+         {
+         case ACPI_HMAT_TYPE_ADDRESS_RANGE:
+ 
+@@ -1800,7 +1803,7 @@ DtCompileHmat (
+ 
+         /* Compile HMAT structure additionals */
+ 
+-        switch (HmatStruct->Type)
++        switch (HmatStructType)
+         {
+         case ACPI_HMAT_TYPE_LOCALITY:
+ 
+@@ -1826,7 +1829,7 @@ DtCompileHmat (
+                 HmatStruct->Length += Subtable->Length;
+                 IntPDNumber++;
+             }
+-            HmatLocality->NumberOfInitiatorPDs = IntPDNumber;
++            HmatLocality->NumberOfInitiatorPDs = AcpiUtReadUint32 (&IntPDNumber);
+ 
+             /* Compile target proximity domain list */
+ 
+@@ -1847,7 +1850,7 @@ DtCompileHmat (
+                 HmatStruct->Length += Subtable->Length;
+                 TgtPDNumber++;
+             }
+-            HmatLocality->NumberOfTargetPDs = TgtPDNumber;
++            HmatLocality->NumberOfTargetPDs = AcpiUtReadUint32 (&TgtPDNumber);
+ 
+             /* Save start of the entries for reporting errors */
+ 
+@@ -1873,6 +1876,9 @@ DtCompileHmat (
+                 EntryNumber++;
+             }
+ 
++            Length = AcpiUtReadUint32 (&HmatStruct->Length);
++            HmatStruct->Length = Length;
++
+             /* Validate number of entries */
+ 
+             if (EntryNumber !=
+@@ -1906,11 +1912,19 @@ DtCompileHmat (
+                 HmatStruct->Length += Subtable->Length;
+                 SMBIOSHandleNumber++;
+             }
+-            HmatCache->NumberOfSMBIOSHandles = SMBIOSHandleNumber;
++            HmatCache->NumberOfSMBIOSHandles =
++                    AcpiUtReadUint16 (&SMBIOSHandleNumber);
++
++            Length = AcpiUtReadUint32 (&HmatStruct->Length);
++            HmatStruct->Length = Length;
++
+             break;
+ 
+         default:
+ 
++        Length = AcpiUtReadUint32(&HmatStruct->Length);
++        HmatStruct->Length = Length;
++
+             break;
+         }
+     }

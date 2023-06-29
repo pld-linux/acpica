@@ -1,0 +1,33 @@
+From 948bebd1a0999bc3481641d3fc996c49432709c6 Mon Sep 17 00:00:00 2001
+From: Al Stone <ahs3@redhat.com>
+Date: Mon, 28 Sep 2020 12:49:23 -0600
+Subject: [PATCH 35/45] Support SLIC and MSDM in a big-endian world
+
+When dumping the SLIC table, it was also found that the code was
+not starting at the proper offset on disassembly.  Set the offset
+to the first byte after the header instead of the very beginning
+of the table.
+
+Signed-off-by: Al Stone <ahs3@redhat.com>
+---
+ source/common/dmtbdump3.c | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+Index: acpica-unix2-20220331/source/common/dmtbdump3.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/common/dmtbdump3.c
++++ acpica-unix2-20220331/source/common/dmtbdump3.c
+@@ -68,9 +68,11 @@ void
+ AcpiDmDumpSlic (
+     ACPI_TABLE_HEADER       *Table)
+ {
++    UINT32                  TableLength = AcpiUtReadUint32 (&Table->Length);
+ 
+-    (void) AcpiDmDumpTable (Table->Length, sizeof (ACPI_TABLE_HEADER), Table,
+-        Table->Length - sizeof (*Table), AcpiDmTableInfoSlic);
++    (void) AcpiDmDumpTable (TableLength, sizeof (ACPI_TABLE_HEADER),
++        (void *) (Table + sizeof (*Table)),
++        TableLength - sizeof (*Table), AcpiDmTableInfoSlic);
+ }
+ 
+ 

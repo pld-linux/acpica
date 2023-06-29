@@ -1,0 +1,76 @@
+From b69b833f5a9205080b27d83379a31fad7fca1575 Mon Sep 17 00:00:00 2001
+From: Al Stone <ahs3@redhat.com>
+Date: Sun, 27 Sep 2020 12:09:28 -0600
+Subject: [PATCH 33/45] Support TCPA in a big-endian world
+
+Signed-off-by: Al Stone <ahs3@redhat.com>
+---
+ source/common/dmtbdump3.c  | 13 ++++++++-----
+ source/compiler/dttable2.c |  4 +++-
+ 2 files changed, 11 insertions(+), 6 deletions(-)
+
+Index: acpica-unix2-20220331/source/common/dmtbdump3.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/common/dmtbdump3.c
++++ acpica-unix2-20220331/source/common/dmtbdump3.c
+@@ -406,11 +406,13 @@ AcpiDmDumpTcpa (
+     ACPI_TABLE_TCPA_HDR     *Subtable = ACPI_ADD_PTR (
+                                 ACPI_TABLE_TCPA_HDR, Table, Offset);
+     ACPI_STATUS             Status;
++    UINT32                  TableLength = AcpiUtReadUint32 (&Table->Length);
++    UINT16                  PlatformClass;
+ 
+ 
+     /* Main table */
+ 
+-    Status = AcpiDmDumpTable (Table->Length, 0, Table,
++    Status = AcpiDmDumpTable (TableLength, 0, Table,
+         0, AcpiDmTableInfoTcpaHdr);
+     if (ACPI_FAILURE (Status))
+     {
+@@ -421,18 +423,19 @@ AcpiDmDumpTcpa (
+      * Examine the PlatformClass field to determine the table type.
+      * Either a client or server table. Only one.
+      */
+-    switch (CommonHeader->PlatformClass)
++    PlatformClass = AcpiUtReadUint16 (&CommonHeader->PlatformClass);
++    switch (PlatformClass)
+     {
+     case ACPI_TCPA_CLIENT_TABLE:
+ 
+-        Status = AcpiDmDumpTable (Table->Length, Offset, Subtable,
++        Status = AcpiDmDumpTable (TableLength, Offset, Subtable,
+             Table->Length - Offset, AcpiDmTableInfoTcpaClient);
+         break;
+ 
+     case ACPI_TCPA_SERVER_TABLE:
+ 
+-        Status = AcpiDmDumpTable (Table->Length, Offset, Subtable,
+-            Table->Length - Offset, AcpiDmTableInfoTcpaServer);
++        Status = AcpiDmDumpTable (TableLength, Offset, Subtable,
++            TableLength - Offset, AcpiDmTableInfoTcpaServer);
+         break;
+ 
+     default:
+Index: acpica-unix2-20220331/source/compiler/dttable2.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/compiler/dttable2.c
++++ acpica-unix2-20220331/source/compiler/dttable2.c
+@@ -2540,6 +2540,7 @@ DtCompileTcpa (
+     ACPI_TABLE_TCPA_HDR     *TcpaHeader;
+     DT_SUBTABLE             *ParentTable;
+     ACPI_STATUS             Status;
++    UINT16                  PlatformClass;
+ 
+ 
+     /* Compile the main table */
+@@ -2560,7 +2561,8 @@ DtCompileTcpa (
+      */
+     TcpaHeader = ACPI_CAST_PTR (ACPI_TABLE_TCPA_HDR, ParentTable->Buffer);
+ 
+-    switch (TcpaHeader->PlatformClass)
++    PlatformClass = AcpiUtReadUint16 (&TcpaHeader->PlatformClass);
++    switch (PlatformClass)
+     {
+     case ACPI_TCPA_CLIENT_TABLE:
+ 

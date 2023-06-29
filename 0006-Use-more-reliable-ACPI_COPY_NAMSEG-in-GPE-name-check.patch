@@ -1,0 +1,32 @@
+From 790c016107e98ded2d0ae579f84dd4cd3fa06587 Mon Sep 17 00:00:00 2001
+From: Al Stone <ahs3@redhat.com>
+Date: Tue, 29 Jun 2021 17:48:31 -0600
+Subject: [PATCH 06/45] Use more reliable ACPI_COPY_NAMSEG in GPE name checks
+
+Signed-off-by: Al Stone <ahs3@redhat.com>
+---
+ source/compiler/aslanalyze.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+Index: acpica-unix2-20220331/source/compiler/aslanalyze.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/compiler/aslanalyze.c
++++ acpica-unix2-20220331/source/compiler/aslanalyze.c
+@@ -469,7 +469,7 @@ ApCheckForGpeNameConflict (
+ 
+     /* Need a null-terminated string version of NameSeg */
+ 
+-    ACPI_MOVE_32_TO_32 (Name, Op->Asl.NameSeg);
++    ACPI_COPY_NAMESEG (Name, Op->Asl.NameSeg);
+     Name[ACPI_NAMESEG_SIZE] = 0;
+ 
+     /*
+@@ -496,7 +496,7 @@ ApCheckForGpeNameConflict (
+      * We are now sure we have an _Lxx or _Exx.
+      * Create the target name that would cause collision (Flip E/L)
+      */
+-    ACPI_MOVE_32_TO_32 (Target, Name);
++    ACPI_COPY_NAMESEG (Target, Name);
+ 
+     /* Inject opposite letter ("L" versus "E") */
+ 

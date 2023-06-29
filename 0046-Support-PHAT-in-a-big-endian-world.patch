@@ -1,0 +1,180 @@
+From 5fd729c8f6c4ce295edd142fc41e03e831ba4afb Mon Sep 17 00:00:00 2001
+From: Al Stone <ahs3@redhat.com>
+Date: Mon, 12 Jul 2021 09:39:38 -0600
+Subject: [PATCH] Support PHAT in a big-endian world
+
+Signed-off-by: Al Stone <ahs3@redhat.com>
+---
+ source/common/dmtbdump2.c  | 36 ++++++++++++++++++++----------------
+ source/compiler/dttable2.c | 12 +++++++++---
+ 2 files changed, 29 insertions(+), 19 deletions(-)
+
+Index: acpica-unix2-20220331/source/common/dmtbdump2.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/common/dmtbdump2.c
++++ acpica-unix2-20220331/source/common/dmtbdump2.c
+@@ -2029,39 +2029,41 @@ AcpiDmDumpPhat (
+     ACPI_PHAT_HEADER        *Subtable;
+     ACPI_PHAT_VERSION_DATA  *VersionData;
+     UINT32                  RecordCount;
+-    UINT32                  Length = Table->Length;
++    UINT32                  TableLength = AcpiUtReadUint32 (&Table->Length);
+     UINT32                  Offset = sizeof (ACPI_TABLE_PHAT);
+-    UINT32                  SubtableLength;
++    UINT16                  SubtableLength;
+     UINT32                  PathLength;
+     UINT32                  VendorLength;
++    UINT16                  SubtableType;
+ 
+ 
+     Subtable = ACPI_ADD_PTR (ACPI_PHAT_HEADER, Table, sizeof (ACPI_TABLE_PHAT));
+ 
+-    while (Offset < Table->Length)
++    while (Offset < TableLength)
+     {
+         /* Common subtable header */
+ 
++        SubtableType = AcpiUtReadUint16 (&Subtable->Type);
++        SubtableLength = AcpiUtReadUint16 (&Subtable->Length);
++
+         AcpiOsPrintf ("\n");
+-        Status = AcpiDmDumpTable (Length, 0, Subtable,
++        Status = AcpiDmDumpTable (TableLength, 0, Subtable,
+             sizeof (ACPI_PHAT_HEADER), AcpiDmTableInfoPhatHdr);
+         if (ACPI_FAILURE (Status))
+         {
+             return;
+         }
+ 
+-        switch (Subtable->Type)
++        switch (SubtableType)
+         {
+         case ACPI_PHAT_TYPE_FW_VERSION_DATA:
+ 
+             InfoTable = AcpiDmTableInfoPhat0;
+-            SubtableLength = sizeof (ACPI_PHAT_VERSION_DATA);
+             break;
+ 
+         case ACPI_PHAT_TYPE_FW_HEALTH_DATA:
+ 
+             InfoTable = AcpiDmTableInfoPhat1;
+-            SubtableLength = sizeof (ACPI_PHAT_HEALTH_DATA);
+             break;
+ 
+         default:
+@@ -2072,22 +2074,22 @@ AcpiDmDumpPhat (
+             return;
+         }
+ 
+-        Status = AcpiDmDumpTable (Length, 0, Subtable,
++        Status = AcpiDmDumpTable (TableLength, 0, Subtable,
+             SubtableLength, InfoTable);
+         if (ACPI_FAILURE (Status))
+         {
+             return;
+         }
+ 
+-        switch (Subtable->Type)
++        switch (SubtableType)
+         {
+         case ACPI_PHAT_TYPE_FW_VERSION_DATA:
+ 
+             VersionData = ACPI_CAST_PTR (ACPI_PHAT_VERSION_DATA, Subtable);
+-            RecordCount = VersionData->ElementCount;
++            RecordCount = AcpiUtReadUint32 (&VersionData->ElementCount);
+             while (RecordCount)
+             {
+-                Status = AcpiDmDumpTable (Length, Offset,
++                Status = AcpiDmDumpTable (TableLength, Offset,
+                     ACPI_ADD_PTR (ACPI_PHAT_HEADER, Subtable, sizeof (ACPI_PHAT_VERSION_DATA)),
+                     sizeof (ACPI_PHAT_VERSION_ELEMENT), AcpiDmTableInfoPhat0a);
+                 if (ACPI_FAILURE (Status))
+@@ -2105,7 +2107,7 @@ AcpiDmDumpPhat (
+             /* account for the null terminator */
+ 
+             PathLength = strlen (ACPI_ADD_PTR (char, Subtable, sizeof (ACPI_PHAT_HEALTH_DATA))) + 1;
+-            Status = AcpiDmDumpTable (Length, Offset,
++            Status = AcpiDmDumpTable (TableLength, Offset,
+                 ACPI_ADD_PTR (ACPI_PHAT_HEADER, Subtable, sizeof (ACPI_PHAT_HEALTH_DATA)),
+                 PathLength, AcpiDmTableInfoPhat1a);
+             if (ACPI_FAILURE (Status))
+@@ -2116,8 +2118,8 @@ AcpiDmDumpPhat (
+             /* Get vendor data - data length is the remaining subtable length */
+ 
+             VendorLength =
+-                Subtable->Length - sizeof (ACPI_PHAT_HEALTH_DATA) - PathLength;
+-            Status = AcpiDmDumpTable (Length, 0,
++                SubtableLength - sizeof (ACPI_PHAT_HEALTH_DATA) - PathLength;
++            Status = AcpiDmDumpTable (TableLength, 0,
+                 ACPI_ADD_PTR (ACPI_PHAT_HEADER, Subtable, sizeof (ACPI_PHAT_HEALTH_DATA) + PathLength),
+                 VendorLength, AcpiDmTableInfoPhat1b);
+             if (ACPI_FAILURE (Status))
+@@ -2129,15 +2131,15 @@ AcpiDmDumpPhat (
+         default:
+ 
+             AcpiOsPrintf ("\n**** Unknown PHAT subtable type 0x%X\n\n",
+-                Subtable->Type);
++                SubtableType);
+             return;
+         }
+ 
+         /* Next subtable */
+ 
+-        Offset += Subtable->Length;
++        Offset += SubtableLength;
+         Subtable = ACPI_ADD_PTR (ACPI_PHAT_HEADER, Subtable,
+-            Subtable->Length);
++            SubtableLength);
+     }
+ }
+ 
+Index: acpica-unix2-20220331/source/compiler/dttable2.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/compiler/dttable2.c
++++ acpica-unix2-20220331/source/compiler/dttable2.c
+@@ -1267,6 +1267,8 @@ DtCompilePhat (
+     ACPI_DMTABLE_INFO       *Info;
+     ACPI_PHAT_VERSION_DATA  *VersionData;
+     UINT32                  RecordCount;
++    UINT16                  SubtableType;
++    UINT16                  Tmp16;
+ 
+ 
+     /* The table consist of subtables */
+@@ -1284,8 +1286,9 @@ DtCompilePhat (
+         DtPushSubtable (Subtable);
+ 
+         PhatHeader = ACPI_CAST_PTR (ACPI_PHAT_HEADER, Subtable->Buffer);
++	SubtableType = AcpiUtReadUint16 (&PhatHeader->Type);
+ 
+-        switch (PhatHeader->Type)
++        switch (SubtableType)
+         {
+         case ACPI_PHAT_TYPE_FW_VERSION_DATA:
+ 
+@@ -1316,13 +1319,13 @@ DtCompilePhat (
+         ParentTable = DtPeekSubtable ();
+         DtInsertSubtable (ParentTable, Subtable);
+ 
+-        switch (PhatHeader->Type)
++        switch (SubtableType)
+         {
+         case ACPI_PHAT_TYPE_FW_VERSION_DATA:
+ 
+             VersionData = ACPI_CAST_PTR (ACPI_PHAT_VERSION_DATA,
+                 (Subtable->Buffer - sizeof (ACPI_PHAT_HEADER)));
+-            RecordCount = VersionData->ElementCount;
++            RecordCount = AcpiUtReadUint32 (&VersionData->ElementCount);
+ 
+             while (RecordCount)
+             {
+@@ -1373,6 +1376,9 @@ DtCompilePhat (
+             DtFatal (ASL_MSG_UNKNOWN_SUBTABLE, *PFieldList, "PHAT");
+             return (AE_ERROR);
+         }
++
++	Tmp16 = AcpiUtReadUint16 (&PhatHeader->Length);
++	PhatHeader->Length = Tmp16;
+     }
+ 
+     return (Status);

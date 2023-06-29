@@ -1,0 +1,256 @@
+From 2cb0b87a15682da4f19f707fa3ffece504f94b5a Mon Sep 17 00:00:00 2001
+From: Al Stone <ahs3@redhat.com>
+Date: Sat, 19 Sep 2020 13:37:38 -0600
+Subject: [PATCH 11/45] Support DBG2 table in a big-endian world
+
+Signed-off-by: Al Stone <ahs3@redhat.com>
+---
+ source/common/dmtbdump1.c  | 37 ++++++++++++++++++--------------
+ source/compiler/dttable1.c | 43 ++++++++++++++++++++++++--------------
+ 2 files changed, 48 insertions(+), 32 deletions(-)
+
+Index: acpica-unix2-20220331/source/common/dmtbdump1.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/common/dmtbdump1.c
++++ acpica-unix2-20220331/source/common/dmtbdump1.c
+@@ -669,7 +669,7 @@ AcpiDmDumpCsrt (
+     ACPI_CSRT_GROUP         *Subtable;
+     ACPI_CSRT_SHARED_INFO   *SharedInfoTable;
+     ACPI_CSRT_DESCRIPTOR    *SubSubtable;
+-    UINT32                  Length = Table->Length;
++    UINT32                  Length = AcpiUtReadUint32 (&Table->Length);
+     UINT32                  Offset = sizeof (ACPI_TABLE_CSRT);
+     UINT32                  SubOffset;
+     UINT32                  SubSubOffset;
+@@ -681,7 +681,7 @@ AcpiDmDumpCsrt (
+     /* Subtables (Resource Groups) */
+ 
+     Subtable = ACPI_ADD_PTR (ACPI_CSRT_GROUP, Table, Offset);
+-    while (Offset < Table->Length)
++    while (Offset < Length)
+     {
+         /* Resource group subtable */
+ 
+@@ -715,7 +715,7 @@ AcpiDmDumpCsrt (
+             Offset + SubOffset);
+ 
+         while ((SubOffset < Subtable->Length) &&
+-              ((Offset + SubOffset) < Table->Length))
++              ((Offset + SubOffset) < Length))
+         {
+             AcpiOsPrintf ("\n");
+             Status = AcpiDmDumpTable (Length, Offset + SubOffset, SubSubtable,
+@@ -776,12 +776,13 @@ AcpiDmDumpDbg2 (
+ {
+     ACPI_STATUS             Status;
+     ACPI_DBG2_DEVICE        *Subtable;
+-    UINT32                  Length = Table->Length;
++    UINT32                  Length = AcpiUtReadUint32 (&Table->Length);
+     UINT32                  Offset = sizeof (ACPI_TABLE_DBG2);
+     UINT32                  i;
+     UINT32                  ArrayOffset;
+     UINT32                  AbsoluteOffset;
+     UINT8                   *Array;
++    UINT16                  SubtableLength;
+ 
+ 
+     /* Main table */
+@@ -795,11 +796,12 @@ AcpiDmDumpDbg2 (
+     /* Subtables */
+ 
+     Subtable = ACPI_ADD_PTR (ACPI_DBG2_DEVICE, Table, Offset);
+-    while (Offset < Table->Length)
++    while (Offset < Length)
+     {
+         AcpiOsPrintf ("\n");
++        SubtableLength = AcpiUtReadUint16 (&Subtable->Length);
+         Status = AcpiDmDumpTable (Length, Offset, Subtable,
+-            Subtable->Length, AcpiDmTableInfoDbg2Device);
++            SubtableLength, AcpiDmTableInfoDbg2Device);
+         if (ACPI_FAILURE (Status))
+         {
+             return;
+@@ -809,13 +811,13 @@ AcpiDmDumpDbg2 (
+ 
+         for (i = 0; i < Subtable->RegisterCount; i++)
+         {
+-            ArrayOffset = Subtable->BaseAddressOffset +
++            ArrayOffset = AcpiUtReadUint16 (&Subtable->BaseAddressOffset) +
+                 (sizeof (ACPI_GENERIC_ADDRESS) * i);
+             AbsoluteOffset = Offset + ArrayOffset;
+             Array = (UINT8 *) Subtable + ArrayOffset;
+ 
+             Status = AcpiDmDumpTable (Length, AbsoluteOffset, Array,
+-                Subtable->Length, AcpiDmTableInfoDbg2Addr);
++                SubtableLength, AcpiDmTableInfoDbg2Addr);
+             if (ACPI_FAILURE (Status))
+             {
+                 return;
+@@ -826,13 +828,13 @@ AcpiDmDumpDbg2 (
+ 
+         for (i = 0; i < Subtable->RegisterCount; i++)
+         {
+-            ArrayOffset = Subtable->AddressSizeOffset +
++            ArrayOffset = AcpiUtReadUint16 (&Subtable->AddressSizeOffset) +
+                 (sizeof (UINT32) * i);
+             AbsoluteOffset = Offset + ArrayOffset;
+             Array = (UINT8 *) Subtable + ArrayOffset;
+ 
+             Status = AcpiDmDumpTable (Length, AbsoluteOffset, Array,
+-                Subtable->Length, AcpiDmTableInfoDbg2Size);
++                SubtableLength, AcpiDmTableInfoDbg2Size);
+             if (ACPI_FAILURE (Status))
+             {
+                 return;
+@@ -842,12 +844,12 @@ AcpiDmDumpDbg2 (
+         /* Dump the Namestring (required) */
+ 
+         AcpiOsPrintf ("\n");
+-        ArrayOffset = Subtable->NamepathOffset;
++        ArrayOffset = AcpiUtReadUint16 (&Subtable->NamepathOffset);
+         AbsoluteOffset = Offset + ArrayOffset;
+         Array = (UINT8 *) Subtable + ArrayOffset;
+ 
+         Status = AcpiDmDumpTable (Length, AbsoluteOffset, Array,
+-            Subtable->Length, AcpiDmTableInfoDbg2Name);
++            SubtableLength, AcpiDmTableInfoDbg2Name);
+         if (ACPI_FAILURE (Status))
+         {
+             return;
+@@ -857,8 +859,11 @@ AcpiDmDumpDbg2 (
+ 
+         if (Subtable->OemDataOffset)
+         {
+-            Status = AcpiDmDumpTable (Length, Offset + Subtable->OemDataOffset,
+-                Table, Subtable->OemDataLength,
++            Array = (UINT8 *) Subtable + AcpiUtReadUint16 (&Subtable->OemDataOffset);
++
++            Status = AcpiDmDumpTable (Length,
++                Offset + AcpiUtReadUint16 (&Subtable->OemDataOffset),
++                Array, AcpiUtReadUint16 (&Subtable->OemDataLength),
+                 AcpiDmTableInfoDbg2OemData);
+             if (ACPI_FAILURE (Status))
+             {
+@@ -868,9 +873,9 @@ AcpiDmDumpDbg2 (
+ 
+         /* Point to next subtable */
+ 
+-        Offset += Subtable->Length;
++        Offset += SubtableLength;
+         Subtable = ACPI_ADD_PTR (ACPI_DBG2_DEVICE, Subtable,
+-            Subtable->Length);
++            SubtableLength);
+     }
+ }
+ 
+Index: acpica-unix2-20220331/source/compiler/dttable1.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/compiler/dttable1.c
++++ acpica-unix2-20220331/source/compiler/dttable1.c
+@@ -718,6 +718,7 @@ DtCompileCsrt (
+     DT_FIELD                **PFieldList = (DT_FIELD **) List;
+     UINT32                  DescriptorCount;
+     UINT32                  GroupLength;
++    UINT32                  Tmp;
+ 
+ 
+     /* Subtables (Resource Groups) */
+@@ -736,12 +737,13 @@ DtCompileCsrt (
+ 
+         /* Compute the number of resource descriptors */
+ 
+-        GroupLength =
+-            (ACPI_CAST_PTR (ACPI_CSRT_GROUP,
+-                Subtable->Buffer))->Length -
+-            (ACPI_CAST_PTR (ACPI_CSRT_GROUP,
+-                Subtable->Buffer))->SharedInfoLength -
+-            sizeof (ACPI_CSRT_GROUP);
++        Tmp = AcpiUtReadUint32 (&(ACPI_CAST_PTR (ACPI_CSRT_GROUP,
++                                Subtable->Buffer))->Length);
++        GroupLength = Tmp;
++        Tmp = AcpiUtReadUint32 (&(ACPI_CAST_PTR (ACPI_CSRT_GROUP,
++                                Subtable->Buffer))->SharedInfoLength);
++        GroupLength -= Tmp;
++        GroupLength -= sizeof (ACPI_CSRT_GROUP);
+ 
+         DescriptorCount = (GroupLength  /
+             sizeof (ACPI_CSRT_DESCRIPTOR));
+@@ -829,6 +831,7 @@ DtCompileDbg2 (
+     ACPI_DBG2_DEVICE        *DeviceInfo;
+     UINT16                  CurrentOffset;
+     UINT32                  i;
++    UINT32                  Tmp;
+ 
+ 
+     /* Main table */
+@@ -845,10 +848,12 @@ DtCompileDbg2 (
+     /* Main table fields */
+ 
+     Dbg2Header = ACPI_CAST_PTR (ACPI_DBG2_HEADER, Subtable->Buffer);
+-    Dbg2Header->InfoOffset = sizeof (ACPI_TABLE_HEADER) + ACPI_PTR_DIFF (
+-        ACPI_ADD_PTR (UINT8, Dbg2Header, sizeof (ACPI_DBG2_HEADER)), Dbg2Header);
++    Tmp = sizeof (ACPI_TABLE_HEADER) + ACPI_PTR_DIFF (
++       ACPI_ADD_PTR (UINT8, Dbg2Header, sizeof (ACPI_DBG2_HEADER)), Dbg2Header);
++    AcpiUtWriteUint (&Dbg2Header->InfoOffset, sizeof (UINT32),
++            &Tmp, sizeof (UINT32));
+ 
+-    SubtableCount = Dbg2Header->InfoCount;
++    SubtableCount = Tmp;
+     DtPushSubtable (Subtable);
+ 
+     /* Process all Device Information subtables (Count = InfoCount) */
+@@ -875,7 +880,8 @@ DtCompileDbg2 (
+ 
+         /* BaseAddressRegister GAS array (Required, size is RegisterCount) */
+ 
+-        DeviceInfo->BaseAddressOffset = CurrentOffset;
++        AcpiUtWriteUint (&DeviceInfo->BaseAddressOffset, sizeof (UINT16),
++                &CurrentOffset, sizeof (UINT16));
+         for (i = 0; *PFieldList && (i < DeviceInfo->RegisterCount); i++)
+         {
+             Status = DtCompileTable (PFieldList, AcpiDmTableInfoDbg2Addr,
+@@ -891,7 +897,8 @@ DtCompileDbg2 (
+ 
+         /* AddressSize array (Required, size = RegisterCount) */
+ 
+-        DeviceInfo->AddressSizeOffset = CurrentOffset;
++        AcpiUtWriteUint (&DeviceInfo->AddressSizeOffset, sizeof (UINT16),
++                &CurrentOffset, sizeof (UINT16));
+         for (i = 0; *PFieldList && (i < DeviceInfo->RegisterCount); i++)
+         {
+             Status = DtCompileTable (PFieldList, AcpiDmTableInfoDbg2Size,
+@@ -907,7 +914,8 @@ DtCompileDbg2 (
+ 
+         /* NamespaceString device identifier (Required, size = NamePathLength) */
+ 
+-        DeviceInfo->NamepathOffset = CurrentOffset;
++        AcpiUtWriteUint (&DeviceInfo->NamepathOffset, sizeof (UINT16),
++            &CurrentOffset, sizeof (UINT16));
+         Status = DtCompileTable (PFieldList, AcpiDmTableInfoDbg2Name,
+             &Subtable);
+         if (ACPI_FAILURE (Status))
+@@ -917,8 +925,9 @@ DtCompileDbg2 (
+ 
+         /* Update the device info header */
+ 
+-        DeviceInfo->NamepathLength = (UINT16) Subtable->Length;
+-        CurrentOffset += (UINT16) DeviceInfo->NamepathLength;
++        AcpiUtWriteUint (&DeviceInfo->NamepathLength, sizeof (UINT16),
++            &Subtable->Length, sizeof (UINT32));
++        CurrentOffset += AcpiUtReadUint16 (&DeviceInfo->NamepathLength);
+         DtInsertSubtable (ParentTable, Subtable);
+ 
+         /* OemData - Variable-length data (Optional, size = OemDataLength) */
+@@ -945,8 +954,10 @@ DtCompileDbg2 (
+ 
+         if (Subtable && Subtable->Length)
+         {
+-            DeviceInfo->OemDataOffset = CurrentOffset;
+-            DeviceInfo->OemDataLength = (UINT16) Subtable->Length;
++            AcpiUtWriteUint (&DeviceInfo->OemDataOffset, sizeof (UINT16),
++                &CurrentOffset, sizeof (UINT16));
++            AcpiUtWriteUint (&DeviceInfo->OemDataLength, sizeof (UINT16),
++                &Subtable->Length, sizeof (UINT32));
+ 
+             DtInsertSubtable (ParentTable, Subtable);
+         }

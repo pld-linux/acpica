@@ -1,0 +1,530 @@
+From 4594630ec2e6a33efce3047a86b08fa170b75848 Mon Sep 17 00:00:00 2001
+From: Al Stone <ahs3@redhat.com>
+Date: Thu, 15 Oct 2020 11:53:33 -0600
+Subject: [PATCH 01/45] Add in basic infrastructure for big-endian support
+
+This adds in some basic functions -- AcpiUtReadUint32(), for example,
+to read a UINT32 value in little-endian form and return it in host-native
+format -- along with AcpiUtWriteUint() that writes out an integer in
+host-native format as a little-endian value.
+
+But, to do that, I'm adding the functions in a new file: utendian.c.  So,
+the header files need fixing, and the makefiles need to be sure to compile
+the new code.  Further, UtIsBigEndianMachine() needed to be moved out of
+compiler/aslutils.c so it could be used in the new functions and avoid
+having to do some conditional compilation depending on endian-ness.
+
+However, this sets things up for the future, where endian-aware code can
+be added as the need is uncovered.  For now, these functions cover all of
+the cases I know about.
+
+Signed-off-by: Al Stone <ahs3@redhat.com>
+---
+ generate/unix/acpibin/Makefile         |   1 +
+ generate/unix/acpidump/Makefile        |   1 +
+ generate/unix/acpiexamples/Makefile    |   1 +
+ generate/unix/acpiexec/Makefile        |   1 +
+ generate/unix/acpihelp/Makefile        |   1 +
+ generate/unix/iasl/Makefile            |   1 +
+ source/compiler/aslcompiler.h          |   4 -
+ source/compiler/aslutils.c             |  27 ---
+ source/components/utilities/utendian.c | 236 +++++++++++++++++++++++++
+ source/include/acmacros.h              |  56 ------
+ source/include/acutils.h               |  32 ++++
+ source/include/platform/aclinux.h      |   1 +
+ 12 files changed, 275 insertions(+), 87 deletions(-)
+ create mode 100644 source/components/utilities/utendian.c
+
+Index: acpica-unix2-20220331/generate/unix/acpibin/Makefile
+===================================================================
+--- acpica-unix2-20220331.orig/generate/unix/acpibin/Makefile
++++ acpica-unix2-20220331/generate/unix/acpibin/Makefile
+@@ -37,6 +37,7 @@ OBJECTS = \
+ 	$(OBJDIR)/utcache.o\
+ 	$(OBJDIR)/utdebug.o\
+ 	$(OBJDIR)/utdecode.o\
++	$(OBJDIR)/utendian.o\
+ 	$(OBJDIR)/utexcep.o\
+ 	$(OBJDIR)/utglobal.o\
+ 	$(OBJDIR)/utlock.o\
+Index: acpica-unix2-20220331/generate/unix/acpidump/Makefile
+===================================================================
+--- acpica-unix2-20220331.orig/generate/unix/acpidump/Makefile
++++ acpica-unix2-20220331/generate/unix/acpidump/Makefile
+@@ -36,6 +36,7 @@ OBJECTS = \
+ 	$(OBJDIR)/osunixdir.o\
+ 	$(OBJDIR)/osunixmap.o\
+ 	$(OBJDIR)/osunixxf.o\
++	$(OBJDIR)/utendian.o\
+ 	$(OBJDIR)/tbprint.o\
+ 	$(OBJDIR)/tbxfroot.o\
+ 	$(OBJDIR)/utascii.o\
+Index: acpica-unix2-20220331/generate/unix/acpiexamples/Makefile
+===================================================================
+--- acpica-unix2-20220331.orig/generate/unix/acpiexamples/Makefile
++++ acpica-unix2-20220331/generate/unix/acpiexamples/Makefile
+@@ -139,6 +139,7 @@ OBJECTS = \
+ 	$(OBJDIR)/utdebug.o\
+ 	$(OBJDIR)/utdecode.o\
+ 	$(OBJDIR)/utdelete.o\
++	$(OBJDIR)/utendian.o\
+ 	$(OBJDIR)/uterror.o\
+ 	$(OBJDIR)/uteval.o\
+ 	$(OBJDIR)/utexcep.o\
+Index: acpica-unix2-20220331/generate/unix/acpiexec/Makefile
+===================================================================
+--- acpica-unix2-20220331.orig/generate/unix/acpiexec/Makefile
++++ acpica-unix2-20220331/generate/unix/acpiexec/Makefile
+@@ -214,6 +214,7 @@ OBJECTS = \
+ 	$(OBJDIR)/utdebug.o\
+ 	$(OBJDIR)/utdecode.o\
+ 	$(OBJDIR)/utdelete.o\
++	$(OBJDIR)/utendian.o\
+ 	$(OBJDIR)/uterror.o\
+ 	$(OBJDIR)/uteval.o\
+ 	$(OBJDIR)/utexcep.o\
+Index: acpica-unix2-20220331/generate/unix/acpihelp/Makefile
+===================================================================
+--- acpica-unix2-20220331.orig/generate/unix/acpihelp/Makefile
++++ acpica-unix2-20220331/generate/unix/acpihelp/Makefile
+@@ -45,6 +45,7 @@ OBJECTS = \
+ 	$(OBJDIR)/getopt.o\
+ 	$(OBJDIR)/osunixxf.o\
+ 	$(OBJDIR)/utdebug.o\
++	$(OBJDIR)/utendian.o\
+ 	$(OBJDIR)/utexcep.o\
+ 	$(OBJDIR)/utglobal.o\
+ 	$(OBJDIR)/uthex.o\
+Index: acpica-unix2-20220331/generate/unix/iasl/Makefile
+===================================================================
+--- acpica-unix2-20220331.orig/generate/unix/iasl/Makefile
++++ acpica-unix2-20220331/generate/unix/iasl/Makefile
+@@ -225,6 +225,7 @@ OBJECTS = \
+ 	$(OBJDIR)/utdebug.o\
+ 	$(OBJDIR)/utdecode.o\
+ 	$(OBJDIR)/utdelete.o\
++	$(OBJDIR)/utendian.o\
+ 	$(OBJDIR)/uterror.o\
+ 	$(OBJDIR)/utexcep.o\
+ 	$(OBJDIR)/utglobal.o\
+Index: acpica-unix2-20220331/source/compiler/aslcompiler.h
+===================================================================
+--- acpica-unix2-20220331.orig/source/compiler/aslcompiler.h
++++ acpica-unix2-20220331/source/compiler/aslcompiler.h
+@@ -1120,10 +1120,6 @@ BOOLEAN
+ UtIsIdInteger (
+     UINT8                   *Target);
+ 
+-UINT8
+-UtIsBigEndianMachine (
+-    void);
+-
+ BOOLEAN
+ UtQueryForOverwrite (
+     char                    *Pathname);
+Index: acpica-unix2-20220331/source/compiler/aslutils.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/compiler/aslutils.c
++++ acpica-unix2-20220331/source/compiler/aslutils.c
+@@ -73,33 +73,6 @@ UtDisplayErrorSummary (
+ 
+ /*******************************************************************************
+  *
+- * FUNCTION:    UtIsBigEndianMachine
+- *
+- * PARAMETERS:  None
+- *
+- * RETURN:      TRUE if machine is big endian
+- *              FALSE if machine is little endian
+- *
+- * DESCRIPTION: Detect whether machine is little endian or big endian.
+- *
+- ******************************************************************************/
+-
+-UINT8
+-UtIsBigEndianMachine (
+-    void)
+-{
+-    union {
+-        UINT32              Integer;
+-        UINT8               Bytes[4];
+-    } Overlay =                 {0xFF000000};
+-
+-
+-    return (Overlay.Bytes[0]); /* Returns 0xFF (TRUE) for big endian */
+-}
+-
+-
+-/*******************************************************************************
+- *
+  * FUNCTION:    UtIsIdInteger
+  *
+  * PARAMETERS:  Pointer to an ACPI ID (HID, CID) string
+Index: acpica-unix2-20220331/source/components/utilities/utendian.c
+===================================================================
+--- /dev/null
++++ acpica-unix2-20220331/source/components/utilities/utendian.c
+@@ -0,0 +1,236 @@
++/******************************************************************************
++ *
++ * Module Name: utendian -- byte swapping support for other-endianness
++ *
++ *****************************************************************************/
++
++/*****************************************************************************
++ *
++ * Copyright (c) 2020, Al Stone <ahs3@redhat.com>
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions, and the following disclaimer,
++ *    without modification.
++ * 2. Redistributions in binary form must reproduce at minimum a disclaimer
++ *    substantially similar to the "NO WARRANTY" disclaimer below
++ *    ("Disclaimer") and any redistribution must be conditioned upon
++ *    including a substantially similar Disclaimer requirement for further
++ *    binary redistribution.
++ * 3. Neither the names of the above-listed copyright holders nor the names
++ *    of any contributors may be used to endorse or promote products derived
++ *    from this software without specific prior written permission.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
++ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
++ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
++ * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
++ * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
++ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
++ * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
++ * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
++ * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
++ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ *
++ * Alternatively, you may choose to be licensed under the terms of the
++ * GNU General Public License ("GPL") version 2 as published by the Free
++ * Software Foundation.
++ *
++ *****************************************************************************/
++
++#include "acpi.h"
++#include "accommon.h"
++
++#define _COMPONENT          ACPI_COMPILER
++        ACPI_MODULE_NAME    ("utendian")
++
++/*
++ * Endianness support functions.
++ *
++ * Ultimately, everything in ACPI tables or AML must be in little-endian
++ * format.  However, we sometimes find it necessary to run on a big-endian
++ * machine and create or read those little-endian values.  This is a small
++ * libary of functions to make that easier, and more visible.
++ *
++ */
++
++/*******************************************************************************
++ *
++ * FUNCTION:    UtIsBigEndianMachine
++ *
++ * PARAMETERS:  None
++ *
++ * RETURN:      TRUE if machine is big endian
++ *              FALSE if machine is little endian
++ *
++ * DESCRIPTION: Detect whether machine is little endian or big endian.
++ *
++ ******************************************************************************/
++
++UINT8
++UtIsBigEndianMachine (
++    void)
++{
++    union {
++        UINT32              Integer;
++        UINT8               Bytes[4];
++    } Overlay =                 {0xFF000000};
++
++
++    return (Overlay.Bytes[0]); /* Returns 0xFF (TRUE) for big endian */
++}
++
++
++/*******************************************************************************
++ *
++ * FUNCTION:    AcpiUtReadUint16
++ *
++ * PARAMETERS:  Src         - location containing the little-endian
++ *                                    value
++ *
++ * RETURN:      UINT16 value in host-native form
++ *
++ * DESCRIPTION: Read a UINT16 little-endian value from a given location
++ *              and return it in host-native form
++ *
++ ******************************************************************************/
++
++UINT16
++AcpiUtReadUint16 (
++    void                    *SrcPtr)
++{
++    UINT16                  Result = 0;
++    UINT8                   *Dst = (UINT8 *) &Result;
++    UINT8                   *Src = (UINT8 *) SrcPtr;
++
++    if (!UtIsBigEndianMachine())
++    {
++        return (*(UINT16 *) SrcPtr);
++    }
++
++    Dst[0] = Src[1];
++    Dst[1] = Src[0];
++
++    return (Result);
++}
++
++/*******************************************************************************
++ *
++ * FUNCTION:    AcpiUtReadUint32
++ *
++ * PARAMETERS:  Src         - location containing the little-endian
++ *                                    value
++ *
++ * RETURN:      UINT32 value in host-native form
++ *
++ * DESCRIPTION: Read a UINT32 little-endian value from a given location
++ *              and return it in host-native form
++ *
++ ******************************************************************************/
++
++UINT32
++AcpiUtReadUint32 (
++    void                    *SrcPtr)
++{
++    UINT32                  Result = 0;
++    UINT8                   *Dst = (UINT8 *) &Result;
++    UINT8                   *Src = (UINT8 *) SrcPtr;
++
++    if (!UtIsBigEndianMachine())
++    {
++        return (*(UINT32 *) SrcPtr);
++    }
++
++    Dst[0] = Src[3];
++    Dst[1] = Src[2];
++    Dst[2] = Src[1];
++    Dst[3] = Src[0];
++
++    return (Result);
++}
++
++/*******************************************************************************
++ *
++ * FUNCTION:    AcpiUtReadUint64
++ *
++ * PARAMETERS:  Src         - location containing the little-endian
++ *                                    value
++ *
++ * RETURN:      UINT64 value in host-native form
++ *
++ * DESCRIPTION: Read a UINT64 little-endian value from a given location
++ *              and return it in host-native form
++ *
++ ******************************************************************************/
++
++UINT64
++AcpiUtReadUint64 (
++    void                    *SrcPtr)
++{
++    UINT64                  Result = 0;
++    UINT8                   *Dst = (UINT8 *) &Result;
++    UINT8                   *Src = (UINT8 *) SrcPtr;
++
++    if (!UtIsBigEndianMachine())
++    {
++        return (*(UINT64 *) SrcPtr);
++    }
++
++    Dst[0] = Src[7];
++    Dst[1] = Src[6];
++    Dst[2] = Src[5];
++    Dst[3] = Src[4];
++    Dst[4] = Src[3];
++    Dst[5] = Src[2];
++    Dst[6] = Src[1];
++    Dst[7] = Src[0];
++
++    return (Result);
++}
++
++/*******************************************************************************
++ *
++ * FUNCTION:    AcpiUtWriteUint
++ *
++ * PARAMETERS:  DstPtr      - where to place the retrieved value
++ *              DstLength   - space in bytes for this int type
++ *              SrcPtr      - where the little-endian value lives
++ *              SrcLength   - space in bytes for this int type
++ *
++ * RETURN:      None.
++ *
++ * DESCRIPTION: Write a host-native integer value of the given size, and
++ *              store it in the location specified in little-endian form.
++ *              Given the amount of integer type casting done, this general
++ *              version seems the most useful (vs 32->32, 32->16, 16->32,
++ *              ad infinitum)
++ *
++ ******************************************************************************/
++
++void
++AcpiUtWriteUint (
++    void                    *DstPtr,
++    int                     DstLength,
++    const void              *SrcPtr,
++    const int               SrcLength)
++{
++    UINT8                   *Dst = (UINT8 *) DstPtr;
++    UINT8                   *Src = (UINT8 *) SrcPtr;
++    int                      Length;
++    int                      ii;
++
++    if (!UtIsBigEndianMachine())
++    {
++        Length = SrcLength > DstLength ? DstLength : SrcLength;
++        memcpy (Dst, Src, Length);
++	return;
++    }
++
++    Length = SrcLength >= DstLength ? DstLength : SrcLength;
++    for (ii = 0; ii < Length; ii++)
++        Dst[ii] = Src[SrcLength - ii - 1];
++
++}
+Index: acpica-unix2-20220331/source/include/acmacros.h
+===================================================================
+--- acpica-unix2-20220331.orig/source/include/acmacros.h
++++ acpica-unix2-20220331/source/include/acmacros.h
+@@ -76,61 +76,6 @@
+  * If the hardware supports the transfer of unaligned data, just do the store.
+  * Otherwise, we have to move one byte at a time.
+  */
+-#ifdef ACPI_BIG_ENDIAN
+-/*
+- * Macros for big-endian machines
+- */
+-
+-/* These macros reverse the bytes during the move, converting little-endian to big endian */
+-
+-                                                     /* Big Endian      <==        Little Endian */
+-                                                     /*  Hi...Lo                     Lo...Hi     */
+-/* 16-bit source, 16/32/64 destination */
+-
+-#define ACPI_MOVE_16_TO_16(d, s)        {((  UINT8 *)(void *)(d))[0] = ((UINT8 *)(void *)(s))[1];\
+-                                         ((  UINT8 *)(void *)(d))[1] = ((UINT8 *)(void *)(s))[0];}
+-
+-#define ACPI_MOVE_16_TO_32(d, s)        {(*(UINT32 *)(void *)(d))=0;\
+-                                           ((UINT8 *)(void *)(d))[2] = ((UINT8 *)(void *)(s))[1];\
+-                                           ((UINT8 *)(void *)(d))[3] = ((UINT8 *)(void *)(s))[0];}
+-
+-#define ACPI_MOVE_16_TO_64(d, s)        {(*(UINT64 *)(void *)(d))=0;\
+-                                           ((UINT8 *)(void *)(d))[6] = ((UINT8 *)(void *)(s))[1];\
+-                                           ((UINT8 *)(void *)(d))[7] = ((UINT8 *)(void *)(s))[0];}
+-
+-/* 32-bit source, 16/32/64 destination */
+-
+-#define ACPI_MOVE_32_TO_16(d, s)        ACPI_MOVE_16_TO_16(d, s)    /* Truncate to 16 */
+-
+-#define ACPI_MOVE_32_TO_32(d, s)        {((  UINT8 *)(void *)(d))[0] = ((UINT8 *)(void *)(s))[3];\
+-                                         ((  UINT8 *)(void *)(d))[1] = ((UINT8 *)(void *)(s))[2];\
+-                                         ((  UINT8 *)(void *)(d))[2] = ((UINT8 *)(void *)(s))[1];\
+-                                         ((  UINT8 *)(void *)(d))[3] = ((UINT8 *)(void *)(s))[0];}
+-
+-#define ACPI_MOVE_32_TO_64(d, s)        {(*(UINT64 *)(void *)(d))=0;\
+-                                           ((UINT8 *)(void *)(d))[4] = ((UINT8 *)(void *)(s))[3];\
+-                                           ((UINT8 *)(void *)(d))[5] = ((UINT8 *)(void *)(s))[2];\
+-                                           ((UINT8 *)(void *)(d))[6] = ((UINT8 *)(void *)(s))[1];\
+-                                           ((UINT8 *)(void *)(d))[7] = ((UINT8 *)(void *)(s))[0];}
+-
+-/* 64-bit source, 16/32/64 destination */
+-
+-#define ACPI_MOVE_64_TO_16(d, s)        ACPI_MOVE_16_TO_16(d, s)    /* Truncate to 16 */
+-
+-#define ACPI_MOVE_64_TO_32(d, s)        ACPI_MOVE_32_TO_32(d, s)    /* Truncate to 32 */
+-
+-#define ACPI_MOVE_64_TO_64(d, s)        {((  UINT8 *)(void *)(d))[0] = ((UINT8 *)(void *)(s))[7];\
+-                                         ((  UINT8 *)(void *)(d))[1] = ((UINT8 *)(void *)(s))[6];\
+-                                         ((  UINT8 *)(void *)(d))[2] = ((UINT8 *)(void *)(s))[5];\
+-                                         ((  UINT8 *)(void *)(d))[3] = ((UINT8 *)(void *)(s))[4];\
+-                                         ((  UINT8 *)(void *)(d))[4] = ((UINT8 *)(void *)(s))[3];\
+-                                         ((  UINT8 *)(void *)(d))[5] = ((UINT8 *)(void *)(s))[2];\
+-                                         ((  UINT8 *)(void *)(d))[6] = ((UINT8 *)(void *)(s))[1];\
+-                                         ((  UINT8 *)(void *)(d))[7] = ((UINT8 *)(void *)(s))[0];}
+-#else
+-/*
+- * Macros for little-endian machines
+- */
+ 
+ #ifndef ACPI_MISALIGNMENT_NOT_SUPPORTED
+ 
+@@ -193,7 +138,6 @@
+                                          ((  UINT8 *)(void *)(d))[6] = ((UINT8 *)(void *)(s))[6];\
+                                          ((  UINT8 *)(void *)(d))[7] = ((UINT8 *)(void *)(s))[7];}
+ #endif
+-#endif
+ 
+ 
+ /*
+Index: acpica-unix2-20220331/source/include/acutils.h
+===================================================================
+--- acpica-unix2-20220331.orig/source/include/acutils.h
++++ acpica-unix2-20220331/source/include/acutils.h
+@@ -1167,4 +1167,36 @@ AcpiUtConvertUuidToString (
+     char                    *OutString);
+ #endif
+ 
++
++/*
++ * utendian -- byte-swapping for big-endian support
++ */
++
++UINT8
++UtIsBigEndianMachine (
++    void);
++
++#if defined(ACPI_ASL_COMPILER) || defined(ACPI_EXEC_APP) || \
++    defined(ACPI_HELP_APP)     || defined(ACPI_DUMP_APP) || \
++    defined(ACPI_EXAMPLE_APP)  || defined(ACPI_BIN_APP)
++UINT32
++AcpiUtReadUint32 (
++    void                    *SrcPtr);
++
++UINT16
++AcpiUtReadUint16 (
++    void                    *SrcPtr);
++
++UINT64
++AcpiUtReadUint64 (
++    void                    *SrcPtr);
++
++void  
++AcpiUtWriteUint (
++    void                    *DstPtr,
++    int                     DstLength,
++    const void              *SrcPtr,
++    const int               SrcLength);
++#endif
++
+ #endif /* _ACUTILS_H */
+Index: acpica-unix2-20220331/source/include/platform/aclinux.h
+===================================================================
+--- acpica-unix2-20220331.orig/source/include/platform/aclinux.h
++++ acpica-unix2-20220331/source/include/platform/aclinux.h
+@@ -203,6 +203,7 @@
+ 
+ #ifdef ACPI_USE_STANDARD_HEADERS
+ #include <unistd.h>
++#include <endian.h>
+ #endif
+ 
+ /* Define/disable kernel-specific declarators */

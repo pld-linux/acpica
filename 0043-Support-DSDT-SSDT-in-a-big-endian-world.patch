@@ -1,0 +1,3171 @@
+From 14d220a34462e61fe69141c86f4c3cd2ae68c279 Mon Sep 17 00:00:00 2001
+From: Al Stone <ahs3@redhat.com>
+Date: Wed, 30 Sep 2020 18:59:57 -0600
+Subject: [PATCH 43/45] Support DSDT/SSDT in a big-endian world.
+
+NB: this is a very large diff.  The problem is that ResourceTemplates
+are treated differently during compilation and disassembly so each of
+the resource types had code that needed to be touched directly.
+
+In general, however, just reading or writing individual AML opcodes
+wasn't that much of a change, and most of it was on the codegen side.
+
+Signed-off-by: Al Stone <ahs3@redhat.com>
+---
+ source/common/adwalk.c                     |   3 +-
+ source/common/dmrestag.c                   |   2 +-
+ source/common/dmtables.c                   |  17 +-
+ source/common/dmtbdump.c                   |   3 +-
+ source/common/dmtbdump3.c                  |   8 +-
+ source/compiler/aslcodegen.c               |  59 ++++--
+ source/compiler/aslopcodes.c               |   3 +-
+ source/compiler/aslrestype1.c              |  60 ++++--
+ source/compiler/aslrestype1i.c             |  35 ++--
+ source/compiler/aslrestype2.c              |  20 +-
+ source/compiler/aslrestype2d.c             |  99 ++++++----
+ source/compiler/aslrestype2e.c             |  90 ++++++---
+ source/compiler/aslrestype2q.c             |  81 +++++---
+ source/compiler/aslrestype2s.c             | 214 +++++++++++++++++----
+ source/compiler/aslrestype2w.c             |  94 +++++----
+ source/compiler/dttable2.c                 |   3 +-
+ source/components/disassembler/dmbuffer.c  |  37 +++-
+ source/components/disassembler/dmopcode.c  |  21 +-
+ source/components/disassembler/dmresrc.c   |   2 +-
+ source/components/disassembler/dmresrcl.c  |  43 +++--
+ source/components/disassembler/dmresrcl2.c | 128 +++++++-----
+ source/components/disassembler/dmresrcs.c  |  18 +-
+ source/components/disassembler/dmwalk.c    |   2 +-
+ source/components/namespace/nsaccess.c     |   2 +-
+ source/components/namespace/nsnames.c      |   4 +-
+ source/components/namespace/nsparse.c      |   6 +-
+ source/components/namespace/nsutils.c      |   7 +-
+ source/components/utilities/utresrc.c      |   2 +-
+ 28 files changed, 721 insertions(+), 341 deletions(-)
+
+Index: acpica-unix2-20220331/source/common/adwalk.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/common/adwalk.c
++++ acpica-unix2-20220331/source/common/adwalk.c
+@@ -679,7 +679,8 @@ AcpiDmLoadDescendingOp (
+ 
+         if (!Path && Op->Common.AmlOpcode == AML_INT_NAMEDFIELD_OP)
+         {
+-            *ACPI_CAST_PTR (UINT32, &FieldPath[0]) = Op->Named.Name;
++            AcpiUtWriteUint (FieldPath, ACPI_NAMESEG_SIZE,
++		             &Op->Named.Name, ACPI_NAMESEG_SIZE);
+             FieldPath[4] = 0;
+             Path = FieldPath;
+         }
+Index: acpica-unix2-20220331/source/common/dmrestag.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/common/dmrestag.c
++++ acpica-unix2-20220331/source/common/dmrestag.c
+@@ -1048,7 +1048,7 @@ AcpiDmAddResourcesToNamespace (
+      * NextOp contains the Aml pointer and the Aml length
+      */
+     AcpiUtWalkAmlResources (NULL, (UINT8 *) NextOp->Named.Data,
+-        (ACPI_SIZE) NextOp->Common.Value.Integer,
++        (ACPI_SIZE) NextOp->Common.Value.Size,
+         AcpiDmAddResourceToNamespace, (void **) BufferNode);
+ }
+ 
+Index: acpica-unix2-20220331/source/common/dmtables.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/common/dmtables.c
++++ acpica-unix2-20220331/source/common/dmtables.c
+@@ -142,6 +142,10 @@ AdCreateTableHeader (
+     ACPI_TABLE_HEADER       *Table)
+ {
+     UINT8                   Checksum;
++    UINT32                  TableLength = AcpiUtReadUint32 (&Table->Length);
++    UINT32                  OemRevision = AcpiUtReadUint32 (&Table->OemRevision);
++    UINT32                  CompilerRevision =
++                                AcpiUtReadUint32 (&Table->AslCompilerRevision);
+ 
+ 
+     /* Reset globals for External statements */
+@@ -156,7 +160,7 @@ AdCreateTableHeader (
+ 
+     AcpiOsPrintf (" * Original Table Header:\n");
+     AcpiOsPrintf (" *     Signature        \"%4.4s\"\n",    Table->Signature);
+-    AcpiOsPrintf (" *     Length           0x%8.8X (%u)\n", Table->Length, Table->Length);
++    AcpiOsPrintf (" *     Length           0x%8.8X (%u)\n", TableLength, TableLength);
+ 
+     /* Print and validate the revision */
+ 
+@@ -188,7 +192,7 @@ AdCreateTableHeader (
+ 
+     AcpiOsPrintf ("\n *     Checksum         0x%2.2X",        Table->Checksum);
+ 
+-    Checksum = AcpiTbChecksum (ACPI_CAST_PTR (UINT8, Table), Table->Length);
++    Checksum = AcpiTbChecksum (ACPI_CAST_PTR (UINT8, Table), TableLength);
+     if (Checksum)
+     {
+         AcpiOsPrintf (" **** Incorrect checksum, should be 0x%2.2X",
+@@ -198,9 +202,9 @@ AdCreateTableHeader (
+     AcpiOsPrintf ("\n");
+     AcpiOsPrintf (" *     OEM ID           \"%.6s\"\n",     Table->OemId);
+     AcpiOsPrintf (" *     OEM Table ID     \"%.8s\"\n",     Table->OemTableId);
+-    AcpiOsPrintf (" *     OEM Revision     0x%8.8X (%u)\n", Table->OemRevision, Table->OemRevision);
++    AcpiOsPrintf (" *     OEM Revision     0x%8.8X (%u)\n", OemRevision, OemRevision);
+     AcpiOsPrintf (" *     Compiler ID      \"%.4s\"\n",     Table->AslCompilerId);
+-    AcpiOsPrintf (" *     Compiler Version 0x%8.8X (%u)\n", Table->AslCompilerRevision, Table->AslCompilerRevision);
++    AcpiOsPrintf (" *     Compiler Version 0x%8.8X (%u)\n", CompilerRevision, CompilerRevision);
+     AcpiOsPrintf (" */\n");
+ 
+     /*
+@@ -221,7 +225,7 @@ AdCreateTableHeader (
+     AcpiOsPrintf (
+         "DefinitionBlock (\"\", \"%4.4s\", %u, \"%.6s\", \"%.8s\", 0x%8.8X)\n",
+         Table->Signature, Table->Revision,
+-        Table->OemId, Table->OemTableId, Table->OemRevision);
++        Table->OemId, Table->OemTableId, OemRevision);
+ }
+ 
+ 
+@@ -396,7 +400,8 @@ AdParseTable (
+ 
+     fprintf (stderr, "Pass 1 parse of [%4.4s]\n", (char *) Table->Signature);
+ 
+-    AmlLength = Table->Length - sizeof (ACPI_TABLE_HEADER);
++    AmlLength = AcpiUtReadUint32 (&Table->Length);
++    AmlLength -= sizeof (ACPI_TABLE_HEADER);
+     AmlStart = ((UINT8 *) Table + sizeof (ACPI_TABLE_HEADER));
+ 
+     AcpiUtSetIntegerWidth (Table->Revision);
+Index: acpica-unix2-20220331/source/common/dmtbdump.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/common/dmtbdump.c
++++ acpica-unix2-20220331/source/common/dmtbdump.c
+@@ -392,8 +392,7 @@ AcpiDmDumpXsdt (
+     for (i = 0; i < Entries; i++)
+     {
+         AcpiDmLineHeader2 (Offset, sizeof (UINT64), "ACPI Table Address", i);
+-        AcpiOsPrintf ("%8.8X%8.8X\n",
+-                ACPI_FORMAT_UINT64 (AcpiUtReadUint64 (&Array[i])));
++        AcpiOsPrintf ("%16.16lX\n", AcpiUtReadUint64 (&Array[i]));
+         Offset += sizeof (UINT64);
+     }
+ }
+Index: acpica-unix2-20220331/source/common/dmtbdump3.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/common/dmtbdump3.c
++++ acpica-unix2-20220331/source/common/dmtbdump3.c
+@@ -741,12 +741,13 @@ AcpiDmDumpWpbt (
+ {
+     ACPI_STATUS             Status;
+     ACPI_TABLE_WPBT         *Subtable;
++    UINT32                  TableLength = AcpiUtReadUint32 (&Table->Length);
+     UINT16                  ArgumentsLength;
+ 
+ 
+     /* Dump the main table */
+ 
+-    Status = AcpiDmDumpTable (Table->Length, 0, Table, 0, AcpiDmTableInfoWpbt);
++    Status = AcpiDmDumpTable (TableLength, 0, Table, 0, AcpiDmTableInfoWpbt);
+     if (ACPI_FAILURE (Status))
+     {
+         return;
+@@ -755,13 +756,13 @@ AcpiDmDumpWpbt (
+     /* Extract the arguments buffer length from the main table */
+ 
+     Subtable = ACPI_CAST_PTR (ACPI_TABLE_WPBT, Table);
+-    ArgumentsLength = Subtable->ArgumentsLength;
++    ArgumentsLength = AcpiUtReadUint16 (&Subtable->ArgumentsLength);
+ 
+     /* Dump the arguments buffer if present */
+ 
+     if (ArgumentsLength)
+     {
+-        (void) AcpiDmDumpTable (Table->Length, 0, Table, ArgumentsLength,
++        (void) AcpiDmDumpTable (TableLength, 0, Table, ArgumentsLength,
+             AcpiDmTableInfoWpbt0);
+     }
+ }
+Index: acpica-unix2-20220331/source/compiler/aslcodegen.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/compiler/aslcodegen.c
++++ acpica-unix2-20220331/source/compiler/aslcodegen.c
+@@ -238,6 +238,10 @@ CgWriteAmlOpcode (
+ {
+     UINT8                   PkgLenFirstByte;
+     UINT32                  i;
++    UINT8                   Tmp8;
++    UINT16                  Tmp16;
++    UINT32                  Tmp32;
++    UINT64                  Tmp64;
+     union {
+         UINT16                  Opcode;
+         UINT8                   OpcodeBytes[2];
+@@ -312,14 +316,15 @@ CgWriteAmlOpcode (
+ 
+         /* Check for two-byte opcode */
+ 
++        Tmp16 = AcpiUtReadUint16 (&Aml.Opcode);
+         if (Aml.Opcode > 0x00FF)
+         {
+             /* Write the high byte first */
+ 
+-            CgLocalWriteAmlData (Op, &Aml.OpcodeBytes[1], 1);
++            CgLocalWriteAmlData (Op, ((UINT8 *) &Tmp16)+1, 1);
+         }
+ 
+-        CgLocalWriteAmlData (Op, &Aml.OpcodeBytes[0], 1);
++        CgLocalWriteAmlData (Op, (UINT8 *) &Tmp16, 1);
+ 
+         /* Subtreelength doesn't include length of package length bytes */
+ 
+@@ -335,7 +340,8 @@ CgWriteAmlOpcode (
+         {
+             /* Simplest case -- no bytes to follow, just write the count */
+ 
+-            CgLocalWriteAmlData (Op, &PkgLen.LenBytes[0], 1);
++            Tmp8 = (UINT8) PkgLen.Len;
++            CgLocalWriteAmlData (Op, &Tmp8, 1);
+         }
+         else if (Op->Asl.AmlPkgLenBytes != 0)
+         {
+@@ -343,9 +349,10 @@ CgWriteAmlOpcode (
+              * Encode the "bytes to follow" in the first byte, top two bits.
+              * The low-order nybble of the length is in the bottom 4 bits
+              */
++            Tmp8 = (UINT8) PkgLen.Len;
+             PkgLenFirstByte = (UINT8)
+                 (((UINT32) (Op->Asl.AmlPkgLenBytes - 1) << 6) |
+-                (PkgLen.LenBytes[0] & 0x0F));
++                (Tmp8 & 0x0F));
+ 
+             CgLocalWriteAmlData (Op, &PkgLenFirstByte, 1);
+ 
+@@ -359,6 +366,9 @@ CgWriteAmlOpcode (
+              * Now we can write the remaining bytes -
+              * either 1, 2, or 3 bytes
+              */
++            Tmp32 = PkgLen.Len;
++            AcpiUtWriteUint (&PkgLen.Len, Op->Asl.AmlPkgLenBytes,
++                &Tmp32, sizeof (UINT32));
+             for (i = 0; i < (UINT32) (Op->Asl.AmlPkgLenBytes - 1); i++)
+             {
+                 CgLocalWriteAmlData (Op, &PkgLen.LenBytes[i], 1);
+@@ -370,22 +380,30 @@ CgWriteAmlOpcode (
+     {
+     case AML_BYTE_OP:
+ 
+-        CgLocalWriteAmlData (Op, &Op->Asl.Value.Integer, 1);
++        Tmp64 = 0;
++        AcpiUtWriteUint (&Tmp64, 1, &Op->Asl.Value.Integer, 8);
++        CgLocalWriteAmlData (Op, &Tmp64, 1);
+         break;
+ 
+     case AML_WORD_OP:
+ 
+-        CgLocalWriteAmlData (Op, &Op->Asl.Value.Integer, 2);
+-       break;
++        Tmp64 = 0;
++        AcpiUtWriteUint (&Tmp64, 2, &Op->Asl.Value.Integer, 8);
++        CgLocalWriteAmlData (Op, &Tmp64, 2);
++        break;
+ 
+     case AML_DWORD_OP:
+ 
+-        CgLocalWriteAmlData (Op, &Op->Asl.Value.Integer, 4);
++        Tmp64 = 0;
++        AcpiUtWriteUint (&Tmp64, 4, &Op->Asl.Value.Integer, 8);
++        CgLocalWriteAmlData (Op, &Tmp64, 4);
+         break;
+ 
+     case AML_QWORD_OP:
+ 
+-        CgLocalWriteAmlData (Op, &Op->Asl.Value.Integer, 8);
++        Tmp64 = 0;
++        AcpiUtWriteUint (&Tmp64, 8, &Op->Asl.Value.Integer, 8);
++        CgLocalWriteAmlData (Op, &Tmp64, 8);
+         break;
+ 
+     case AML_STRING_OP:
+@@ -423,6 +441,7 @@ CgWriteTableHeader (
+     ACPI_PARSE_OBJECT       *Child;
+     UINT32                  CommentLength;
+     ACPI_COMMENT_NODE       *Current;
++    UINT32                  Tmp32;
+ 
+ 
+     memset (&AslGbl_TableHeader, 0, sizeof (ACPI_TABLE_HEADER));
+@@ -478,7 +497,9 @@ CgWriteTableHeader (
+     /* OEM Revision */
+ 
+     Child = Child->Asl.Next;
+-    AslGbl_TableHeader.OemRevision = (UINT32) Child->Asl.Value.Integer;
++    AcpiUtWriteUint (&Tmp32, sizeof (UINT32),
++           &Child->Asl.Value.Integer, sizeof (Child->Asl.Value.Integer));
++    AslGbl_TableHeader.OemRevision = Tmp32;
+ 
+     /* Compiler ID */
+ 
+@@ -486,7 +507,8 @@ CgWriteTableHeader (
+ 
+     /* Compiler version */
+ 
+-    AslGbl_TableHeader.AslCompilerRevision = ACPI_CA_VERSION;
++    Tmp32 = ACPI_CA_VERSION;
++    AslGbl_TableHeader.AslCompilerRevision = AcpiUtReadUint32 (&Tmp32);
+ 
+     /* Table length. Checksum zero for now, will rewrite later */
+ 
+@@ -541,6 +563,15 @@ CgWriteTableHeader (
+     AslGbl_TableHeader.Checksum = 0;
+     Op->Asl.FinalAmlOffset = ftell (AslGbl_Files[ASL_FILE_AML_OUTPUT].Handle);
+ 
++    /*
++     * Adjust the Table length; it will only change when big-endian
++     * but we have to wait until here in case there is arithmetic to
++     * be done on the length before this step in the function
++     */
++
++    Tmp32 = AslGbl_TableHeader.Length;
++    AslGbl_TableHeader.Length = AcpiUtReadUint32 (&Tmp32);
++
+     /* Write entire header and clear the table header global */
+ 
+     CgLocalWriteAmlData (Op, &AslGbl_TableHeader, sizeof (ACPI_TABLE_HEADER));
+@@ -625,6 +656,7 @@ CgWriteNode (
+     ACPI_PARSE_OBJECT       *Op)
+ {
+     ASL_RESOURCE_NODE       *Rnode;
++    UINT64                  Tmp64;
+ 
+ 
+     /* Write all comments here. */
+@@ -653,7 +685,10 @@ CgWriteNode (
+     case AML_RAW_DATA_DWORD:
+     case AML_RAW_DATA_QWORD:
+ 
+-        CgLocalWriteAmlData (Op, &Op->Asl.Value.Integer, Op->Asl.AmlLength);
++        Tmp64 = 0;
++        AcpiUtWriteUint (&Tmp64, Op->Asl.AmlLength,
++            &Op->Asl.Value.Integer, sizeof (UINT64));
++        CgLocalWriteAmlData (Op, &Tmp64, Op->Asl.AmlLength);
+         return;
+ 
+ 
+Index: acpica-unix2-20220331/source/compiler/aslopcodes.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/compiler/aslopcodes.c
++++ acpica-unix2-20220331/source/compiler/aslopcodes.c
+@@ -511,7 +511,8 @@ OpcDoUnicode (
+ 
+     for (i = 0; i < Count; i++)
+     {
+-        UnicodeString[i] = (UINT16) AsciiString[i];
++        AcpiUtWriteUint (&UnicodeString[i], sizeof (UINT16),
++                &AsciiString[i], sizeof (UINT8));
+     }
+ 
+     /*
+Index: acpica-unix2-20220331/source/compiler/aslrestype1.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/compiler/aslrestype1.c
++++ acpica-unix2-20220331/source/compiler/aslrestype1.c
+@@ -143,6 +143,7 @@ RsDoMemory24Descriptor (
+     ASL_RESOURCE_NODE       *Rnode;
+     UINT32                  CurrentByteOffset;
+     UINT32                  i;
++    UINT16                  Tmp16;
+ 
+ 
+     InitializerOp = Info->DescriptorTypeOp->Asl.Child;
+@@ -151,7 +152,8 @@ RsDoMemory24Descriptor (
+ 
+     Descriptor = Rnode->Buffer;
+     Descriptor->Memory24.DescriptorType = ACPI_RESOURCE_NAME_MEMORY24;
+-    Descriptor->Memory24.ResourceLength = 9;
++    Tmp16 = 9;
++    Descriptor->Memory24.ResourceLength = AcpiUtReadUint16 (&Tmp16);
+ 
+     /* Process all child initialization nodes */
+ 
+@@ -168,7 +170,8 @@ RsDoMemory24Descriptor (
+ 
+         case 1: /* Min Address */
+ 
+-            Descriptor->Memory24.Minimum = (UINT16) InitializerOp->Asl.Value.Integer;
++            Tmp16 = (UINT16) InitializerOp->Asl.Value.Integer;
++            Descriptor->Memory24.Minimum = AcpiUtReadUint16 (&Tmp16);
+             RsCreateWordField (InitializerOp, ACPI_RESTAG_MINADDR,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (Memory24.Minimum));
+             MinOp = InitializerOp;
+@@ -176,7 +179,8 @@ RsDoMemory24Descriptor (
+ 
+         case 2: /* Max Address */
+ 
+-            Descriptor->Memory24.Maximum = (UINT16) InitializerOp->Asl.Value.Integer;
++            Tmp16 = (UINT16) InitializerOp->Asl.Value.Integer;
++            Descriptor->Memory24.Maximum = AcpiUtReadUint16 (&Tmp16);
+             RsCreateWordField (InitializerOp, ACPI_RESTAG_MAXADDR,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (Memory24.Maximum));
+             MaxOp = InitializerOp;
+@@ -184,14 +188,16 @@ RsDoMemory24Descriptor (
+ 
+         case 3: /* Alignment */
+ 
+-            Descriptor->Memory24.Alignment = (UINT16) InitializerOp->Asl.Value.Integer;
++            Tmp16 = (UINT16) InitializerOp->Asl.Value.Integer;
++            Descriptor->Memory24.Alignment = AcpiUtReadUint16 (&Tmp16);
+             RsCreateWordField (InitializerOp, ACPI_RESTAG_ALIGNMENT,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (Memory24.Alignment));
+             break;
+ 
+         case 4: /* Length */
+ 
+-            Descriptor->Memory24.AddressLength = (UINT16) InitializerOp->Asl.Value.Integer;
++            Tmp16 = (UINT16) InitializerOp->Asl.Value.Integer;
++            Descriptor->Memory24.AddressLength = AcpiUtReadUint16 (&Tmp16);
+             RsCreateWordField (InitializerOp, ACPI_RESTAG_LENGTH,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (Memory24.AddressLength));
+             LengthOp = InitializerOp;
+@@ -214,10 +220,10 @@ RsDoMemory24Descriptor (
+     /* Validate the Min/Max/Len/Align values (Alignment==0 means 64K) */
+ 
+     RsSmallAddressCheck (ACPI_RESOURCE_NAME_MEMORY24,
+-        Descriptor->Memory24.Minimum,
+-        Descriptor->Memory24.Maximum,
+-        Descriptor->Memory24.AddressLength,
+-        Descriptor->Memory24.Alignment,
++        (UINT32) AcpiUtReadUint16 (&Descriptor->Memory24.Minimum),
++        (UINT32) AcpiUtReadUint16 (&Descriptor->Memory24.Maximum),
++        (UINT32) AcpiUtReadUint16 (&Descriptor->Memory24.AddressLength),
++        (UINT32) AcpiUtReadUint16 (&Descriptor->Memory24.Alignment),
+         MinOp, MaxOp, LengthOp, NULL, Info->DescriptorTypeOp);
+ 
+     return (Rnode);
+@@ -249,6 +255,8 @@ RsDoMemory32Descriptor (
+     ASL_RESOURCE_NODE       *Rnode;
+     UINT32                  CurrentByteOffset;
+     UINT32                  i;
++    UINT16                  Tmp16;
++    UINT32                  Tmp32;
+ 
+ 
+     InitializerOp = Info->DescriptorTypeOp->Asl.Child;
+@@ -257,7 +265,8 @@ RsDoMemory32Descriptor (
+ 
+     Descriptor = Rnode->Buffer;
+     Descriptor->Memory32.DescriptorType = ACPI_RESOURCE_NAME_MEMORY32;
+-    Descriptor->Memory32.ResourceLength = 17;
++    Tmp16 = 17;
++    Descriptor->Memory32.ResourceLength = AcpiUtReadUint16 (&Tmp16);
+ 
+     /* Process all child initialization nodes */
+ 
+@@ -274,7 +283,8 @@ RsDoMemory32Descriptor (
+ 
+         case 1:  /* Min Address */
+ 
+-            Descriptor->Memory32.Minimum = (UINT32) InitializerOp->Asl.Value.Integer;
++            Tmp32 = (UINT32) InitializerOp->Asl.Value.Integer;
++            Descriptor->Memory32.Minimum = AcpiUtReadUint32 (&Tmp32);
+             RsCreateDwordField (InitializerOp, ACPI_RESTAG_MINADDR,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (Memory32.Minimum));
+             MinOp = InitializerOp;
+@@ -282,7 +292,8 @@ RsDoMemory32Descriptor (
+ 
+         case 2: /* Max Address */
+ 
+-            Descriptor->Memory32.Maximum = (UINT32) InitializerOp->Asl.Value.Integer;
++            Tmp32 = (UINT32) InitializerOp->Asl.Value.Integer;
++            Descriptor->Memory32.Maximum = AcpiUtReadUint32 (&Tmp32);
+             RsCreateDwordField (InitializerOp, ACPI_RESTAG_MAXADDR,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (Memory32.Maximum));
+             MaxOp = InitializerOp;
+@@ -290,7 +301,8 @@ RsDoMemory32Descriptor (
+ 
+         case 3: /* Alignment */
+ 
+-            Descriptor->Memory32.Alignment = (UINT32) InitializerOp->Asl.Value.Integer;
++            Tmp32 = (UINT32) InitializerOp->Asl.Value.Integer;
++            Descriptor->Memory32.Alignment = AcpiUtReadUint32 (&Tmp32);
+             RsCreateDwordField (InitializerOp, ACPI_RESTAG_ALIGNMENT,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (Memory32.Alignment));
+             AlignOp = InitializerOp;
+@@ -298,7 +310,8 @@ RsDoMemory32Descriptor (
+ 
+         case 4: /* Length */
+ 
+-            Descriptor->Memory32.AddressLength = (UINT32) InitializerOp->Asl.Value.Integer;
++            Tmp32 = (UINT32) InitializerOp->Asl.Value.Integer;
++            Descriptor->Memory32.AddressLength = AcpiUtReadUint32 (&Tmp32);
+             RsCreateDwordField (InitializerOp, ACPI_RESTAG_LENGTH,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (Memory32.AddressLength));
+             LengthOp = InitializerOp;
+@@ -321,10 +334,10 @@ RsDoMemory32Descriptor (
+     /* Validate the Min/Max/Len/Align values */
+ 
+     RsSmallAddressCheck (ACPI_RESOURCE_NAME_MEMORY32,
+-        Descriptor->Memory32.Minimum,
+-        Descriptor->Memory32.Maximum,
+-        Descriptor->Memory32.AddressLength,
+-        Descriptor->Memory32.Alignment,
++        AcpiUtReadUint32 (&Descriptor->Memory32.Minimum),
++        AcpiUtReadUint32 (&Descriptor->Memory32.Maximum),
++        AcpiUtReadUint32 (&Descriptor->Memory32.AddressLength),
++        AcpiUtReadUint32 (&Descriptor->Memory32.Alignment),
+         MinOp, MaxOp, LengthOp, AlignOp, Info->DescriptorTypeOp);
+ 
+     return (Rnode);
+@@ -352,6 +365,8 @@ RsDoMemory32FixedDescriptor (
+     ASL_RESOURCE_NODE       *Rnode;
+     UINT32                  CurrentByteOffset;
+     UINT32                  i;
++    UINT16                  Tmp16;
++    UINT32                  Tmp32;
+ 
+ 
+     InitializerOp = Info->DescriptorTypeOp->Asl.Child;
+@@ -360,7 +375,8 @@ RsDoMemory32FixedDescriptor (
+ 
+     Descriptor = Rnode->Buffer;
+     Descriptor->FixedMemory32.DescriptorType = ACPI_RESOURCE_NAME_FIXED_MEMORY32;
+-    Descriptor->FixedMemory32.ResourceLength = 9;
++    Tmp16 = 9;
++    Descriptor->FixedMemory32.ResourceLength = AcpiUtReadUint16 (&Tmp16);
+ 
+     /* Process all child initialization nodes */
+ 
+@@ -377,14 +393,16 @@ RsDoMemory32FixedDescriptor (
+ 
+         case 1: /* Address */
+ 
+-            Descriptor->FixedMemory32.Address = (UINT32) InitializerOp->Asl.Value.Integer;
++            Tmp32 = (UINT32) InitializerOp->Asl.Value.Integer;
++            Descriptor->FixedMemory32.Address = AcpiUtReadUint32 (&Tmp32);
+             RsCreateDwordField (InitializerOp, ACPI_RESTAG_BASEADDRESS,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (FixedMemory32.Address));
+             break;
+ 
+         case 2: /* Length */
+ 
+-            Descriptor->FixedMemory32.AddressLength = (UINT32) InitializerOp->Asl.Value.Integer;
++            Tmp32 = (UINT32) InitializerOp->Asl.Value.Integer;
++            Descriptor->FixedMemory32.AddressLength = AcpiUtReadUint32 (&Tmp32);
+             RsCreateDwordField (InitializerOp, ACPI_RESTAG_LENGTH,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (FixedMemory32.AddressLength));
+             break;
+Index: acpica-unix2-20220331/source/compiler/aslrestype1i.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/compiler/aslrestype1i.c
++++ acpica-unix2-20220331/source/compiler/aslrestype1i.c
+@@ -199,6 +199,7 @@ RsDoFixedDmaDescriptor (
+     ASL_RESOURCE_NODE       *Rnode;
+     UINT32                  CurrentByteOffset;
+     UINT32                  i;
++    UINT16                  Tmp16;
+ 
+ 
+     InitializerOp = Info->DescriptorTypeOp->Asl.Child;
+@@ -217,14 +218,16 @@ RsDoFixedDmaDescriptor (
+         {
+         case 0: /* DMA Request Lines [WORD] (_DMA) */
+ 
+-            Descriptor->FixedDma.RequestLines = (UINT16) InitializerOp->Asl.Value.Integer;
++            Tmp16 = (UINT16) InitializerOp->Asl.Value.Integer;
++            Descriptor->FixedDma.RequestLines = AcpiUtReadUint16 (&Tmp16);
+             RsCreateWordField (InitializerOp, ACPI_RESTAG_DMA,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (FixedDma.RequestLines));
+             break;
+ 
+         case 1: /* DMA Channel [WORD] (_TYP) */
+ 
+-            Descriptor->FixedDma.Channels = (UINT16) InitializerOp->Asl.Value.Integer;
++            Tmp16 = (UINT16) InitializerOp->Asl.Value.Integer;
++            Descriptor->FixedDma.Channels = AcpiUtReadUint16 (&Tmp16);
+             RsCreateWordField (InitializerOp, ACPI_RESTAG_DMATYPE,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (FixedDma.Channels));
+             break;
+@@ -275,6 +278,7 @@ RsDoFixedIoDescriptor (
+     ASL_RESOURCE_NODE       *Rnode;
+     UINT32                  CurrentByteOffset;
+     UINT32                  i;
++    UINT16                  Tmp16;
+ 
+ 
+     InitializerOp = Info->DescriptorTypeOp->Asl.Child;
+@@ -293,8 +297,8 @@ RsDoFixedIoDescriptor (
+         {
+         case 0: /* Base Address */
+ 
+-            Descriptor->FixedIo.Address =
+-                (UINT16) InitializerOp->Asl.Value.Integer;
++            Tmp16 = (UINT16) InitializerOp->Asl.Value.Integer;
++            Descriptor->FixedIo.Address = AcpiUtReadUint16 (&Tmp16);
+             RsCreateWordField (InitializerOp, ACPI_RESTAG_BASEADDRESS,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (FixedIo.Address));
+             AddressOp = InitializerOp;
+@@ -324,7 +328,7 @@ RsDoFixedIoDescriptor (
+ 
+     /* Error checks */
+ 
+-    if (Descriptor->FixedIo.Address > 0x03FF)
++    if (AcpiUtReadUint16 (&Descriptor->FixedIo.Address) > 0x03FF)
+     {
+         AslError (ASL_WARNING, ASL_MSG_ISA_ADDRESS, AddressOp, NULL);
+     }
+@@ -358,6 +362,7 @@ RsDoIoDescriptor (
+     ASL_RESOURCE_NODE       *Rnode;
+     UINT32                  CurrentByteOffset;
+     UINT32                  i;
++    UINT16                  Tmp16;
+ 
+ 
+     InitializerOp = Info->DescriptorTypeOp->Asl.Child;
+@@ -383,8 +388,8 @@ RsDoIoDescriptor (
+ 
+         case 1:  /* Min Address */
+ 
+-            Descriptor->Io.Minimum =
+-                (UINT16) InitializerOp->Asl.Value.Integer;
++            Tmp16 = (UINT16) InitializerOp->Asl.Value.Integer;
++            Descriptor->Io.Minimum = AcpiUtReadUint16 (&Tmp16);
+             RsCreateWordField (InitializerOp, ACPI_RESTAG_MINADDR,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (Io.Minimum));
+             MinOp = InitializerOp;
+@@ -392,8 +397,8 @@ RsDoIoDescriptor (
+ 
+         case 2: /* Max Address */
+ 
+-            Descriptor->Io.Maximum =
+-                (UINT16) InitializerOp->Asl.Value.Integer;
++            Tmp16 = (UINT16) InitializerOp->Asl.Value.Integer;
++            Descriptor->Io.Maximum = AcpiUtReadUint16 (&Tmp16);
+             RsCreateWordField (InitializerOp, ACPI_RESTAG_MAXADDR,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (Io.Maximum));
+             MaxOp = InitializerOp;
+@@ -434,10 +439,10 @@ RsDoIoDescriptor (
+     /* Validate the Min/Max/Len/Align values */
+ 
+     RsSmallAddressCheck (ACPI_RESOURCE_NAME_IO,
+-        Descriptor->Io.Minimum,
+-        Descriptor->Io.Maximum,
+-        Descriptor->Io.AddressLength,
+-        Descriptor->Io.Alignment,
++        (UINT32) (AcpiUtReadUint16 (&Descriptor->Io.Minimum)),
++        (UINT32) (AcpiUtReadUint16 (&Descriptor->Io.Maximum)),
++        (UINT32) Descriptor->Io.AddressLength,
++        (UINT32) Descriptor->Io.Alignment,
+         MinOp, MaxOp, LengthOp, AlignOp, Info->DescriptorTypeOp);
+ 
+     return (Rnode);
+@@ -561,7 +566,7 @@ RsDoIrqDescriptor (
+ 
+     /* Now we can set the channel mask */
+ 
+-    Descriptor->Irq.IrqMask = IrqMask;
++    Descriptor->Irq.IrqMask = AcpiUtReadUint16 (&IrqMask);
+     return (Rnode);
+ }
+ 
+@@ -660,6 +665,6 @@ RsDoIrqNoFlagsDescriptor (
+ 
+     /* Now we can set the interrupt mask */
+ 
+-    Descriptor->Irq.IrqMask = IrqMask;
++    Descriptor->Irq.IrqMask = AcpiUtReadUint16(&IrqMask);
+     return (Rnode);
+ }
+Index: acpica-unix2-20220331/source/compiler/aslrestype2.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/compiler/aslrestype2.c
++++ acpica-unix2-20220331/source/compiler/aslrestype2.c
+@@ -77,6 +77,8 @@ RsDoGeneralRegisterDescriptor (
+     ASL_RESOURCE_NODE       *Rnode;
+     UINT32                  CurrentByteOffset;
+     UINT32                  i;
++    UINT16                  Tmp16;
++    UINT64                  Tmp64;
+ 
+ 
+     InitializerOp = Info->DescriptorTypeOp->Asl.Child;
+@@ -85,7 +87,8 @@ RsDoGeneralRegisterDescriptor (
+ 
+     Descriptor = Rnode->Buffer;
+     Descriptor->GenericReg.DescriptorType = ACPI_RESOURCE_NAME_GENERIC_REGISTER;
+-    Descriptor->GenericReg.ResourceLength = 12;
++    Tmp16 = 12;
++    Descriptor->GenericReg.ResourceLength = AcpiUtReadUint16 (&Tmp16);
+ 
+     /* Process all child initialization nodes */
+ 
+@@ -116,7 +119,8 @@ RsDoGeneralRegisterDescriptor (
+ 
+         case 3: /* Register Address */
+ 
+-            Descriptor->GenericReg.Address = InitializerOp->Asl.Value.Integer;
++            Tmp64 = InitializerOp->Asl.Value.Integer;
++            Descriptor->GenericReg.Address = AcpiUtReadUint64 (&Tmp64);
+             RsCreateQwordField (InitializerOp, ACPI_RESTAG_ADDRESS,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (GenericReg.Address));
+             break;
+@@ -184,6 +188,8 @@ RsDoInterruptDescriptor (
+     BOOLEAN                 HasResSourceIndex = FALSE;
+     UINT8                   ResSourceIndex = 0;
+     UINT8                   *ResSourceString = NULL;
++    UINT16                  Tmp16;
++    UINT32                  Tmp32;
+ 
+ 
+     InitializerOp = Info->DescriptorTypeOp->Asl.Child;
+@@ -225,7 +231,7 @@ RsDoInterruptDescriptor (
+      * Initial descriptor length -- may be enlarged if there are
+      * optional fields present
+      */
+-    Descriptor->ExtendedIrq.ResourceLength  = 2;  /* Flags and table length byte */
++    Descriptor->ExtendedIrq.ResourceLength  = 2; /* Flags and table length byte */
+     Descriptor->ExtendedIrq.InterruptCount  = 0;
+ 
+     Rover = ACPI_CAST_PTR (AML_RESOURCE,
+@@ -333,7 +339,8 @@ RsDoInterruptDescriptor (
+ 
+             /* Save the integer and move pointer to the next one */
+ 
+-            Rover->DwordItem = (UINT32) InitializerOp->Asl.Value.Integer;
++            Tmp32 = (UINT32) InitializerOp->Asl.Value.Integer;
++            Rover->DwordItem = AcpiUtReadUint32 (&Tmp32);
+             Rover = ACPI_ADD_PTR (AML_RESOURCE, &(Rover->DwordItem), 4);
+             Descriptor->ExtendedIrq.InterruptCount++;
+             Descriptor->ExtendedIrq.ResourceLength += 4;
+@@ -384,6 +391,8 @@ RsDoInterruptDescriptor (
+         Descriptor->ExtendedIrq.ResourceLength = (UINT16)
+             (Descriptor->ExtendedIrq.ResourceLength + StringLength);
+     }
++    Tmp16 = Descriptor->ExtendedIrq.ResourceLength;
++    Descriptor->ExtendedIrq.ResourceLength  = AcpiUtReadUint16 (&Tmp16);
+ 
+     Rnode->BufferLength =
+         (ASL_RESDESC_OFFSET (ExtendedIrq.Interrupts[0]) -
+@@ -436,7 +445,8 @@ RsDoVendorLargeDescriptor (
+ 
+     Descriptor = Rnode->Buffer;
+     Descriptor->VendorLarge.DescriptorType = ACPI_RESOURCE_NAME_VENDOR_LARGE;
+-    Descriptor->VendorLarge.ResourceLength = (UINT16) i;
++    AcpiUtWriteUint (&Descriptor->VendorLarge.ResourceLength, sizeof (UINT16),
++            &i, sizeof (UINT32));
+ 
+     /* Point to end-of-descriptor for vendor data */
+ 
+Index: acpica-unix2-20220331/source/compiler/aslrestype2d.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/compiler/aslrestype2d.c
++++ acpica-unix2-20220331/source/compiler/aslrestype2d.c
+@@ -84,6 +84,8 @@ RsDoDwordIoDescriptor (
+     UINT32                  CurrentByteOffset;
+     UINT32                  i;
+     BOOLEAN                 ResSourceIndex = FALSE;
++    UINT16                  Tmp16;
++    UINT32                  Tmp32;
+ 
+ 
+     InitializerOp = Info->DescriptorTypeOp->Asl.Child;
+@@ -147,8 +149,8 @@ RsDoDwordIoDescriptor (
+ 
+         case 5: /* Address Granularity */
+ 
+-            Descriptor->Address32.Granularity =
+-                (UINT32) InitializerOp->Asl.Value.Integer;
++            Tmp32 = (UINT32) InitializerOp->Asl.Value.Integer;
++            Descriptor->Address32.Granularity = AcpiUtReadUint32 (&Tmp32);
+             RsCreateDwordField (InitializerOp, ACPI_RESTAG_GRANULARITY,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (Address32.Granularity));
+             GranOp = InitializerOp;
+@@ -156,8 +158,8 @@ RsDoDwordIoDescriptor (
+ 
+         case 6: /* Address Min */
+ 
+-            Descriptor->Address32.Minimum =
+-                (UINT32) InitializerOp->Asl.Value.Integer;
++            Tmp32 = (UINT32) InitializerOp->Asl.Value.Integer;
++            Descriptor->Address32.Minimum = AcpiUtReadUint32 (&Tmp32);
+             RsCreateDwordField (InitializerOp, ACPI_RESTAG_MINADDR,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (Address32.Minimum));
+             MinOp = InitializerOp;
+@@ -165,8 +167,8 @@ RsDoDwordIoDescriptor (
+ 
+         case 7: /* Address Max */
+ 
+-            Descriptor->Address32.Maximum =
+-                (UINT32) InitializerOp->Asl.Value.Integer;
++            Tmp32 = (UINT32) InitializerOp->Asl.Value.Integer;
++            Descriptor->Address32.Maximum = AcpiUtReadUint32 (&Tmp32);
+             RsCreateDwordField (InitializerOp, ACPI_RESTAG_MAXADDR,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (Address32.Maximum));
+             MaxOp = InitializerOp;
+@@ -174,16 +176,16 @@ RsDoDwordIoDescriptor (
+ 
+         case 8: /* Translation Offset */
+ 
+-            Descriptor->Address32.TranslationOffset =
+-                (UINT32) InitializerOp->Asl.Value.Integer;
++            Tmp32 = (UINT32) InitializerOp->Asl.Value.Integer;
++            Descriptor->Address32.TranslationOffset = AcpiUtReadUint32 (&Tmp32);
+             RsCreateDwordField (InitializerOp, ACPI_RESTAG_TRANSLATION,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (Address32.TranslationOffset));
+             break;
+ 
+         case 9: /* Address Length */
+ 
+-            Descriptor->Address32.AddressLength =
+-                (UINT32) InitializerOp->Asl.Value.Integer;
++            Tmp32 = (UINT32) InitializerOp->Asl.Value.Integer;
++            Descriptor->Address32.AddressLength = AcpiUtReadUint32 (&Tmp32);
+             RsCreateDwordField (InitializerOp, ACPI_RESTAG_LENGTH,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (Address32.AddressLength));
+             LengthOp = InitializerOp;
+@@ -271,11 +273,14 @@ RsDoDwordIoDescriptor (
+ 
+     /* Validate the Min/Max/Len/Gran values */
+ 
++    Tmp16 = Descriptor->Address32.ResourceLength;
++    Descriptor->Address32.ResourceLength = AcpiUtReadUint16 (&Tmp16);
++
+     RsLargeAddressCheck (
+-        (UINT64) Descriptor->Address32.Minimum,
+-        (UINT64) Descriptor->Address32.Maximum,
+-        (UINT64) Descriptor->Address32.AddressLength,
+-        (UINT64) Descriptor->Address32.Granularity,
++        (UINT64) AcpiUtReadUint32 (&Descriptor->Address32.Minimum),
++        (UINT64) AcpiUtReadUint32 (&Descriptor->Address32.Maximum),
++        (UINT64) AcpiUtReadUint32 (&Descriptor->Address32.AddressLength),
++        (UINT64) AcpiUtReadUint32 (&Descriptor->Address32.Granularity),
+         Descriptor->Address32.Flags,
+         MinOp, MaxOp, LengthOp, GranOp, Info->DescriptorTypeOp);
+ 
+@@ -314,6 +319,8 @@ RsDoDwordMemoryDescriptor (
+     UINT32                  CurrentByteOffset;
+     UINT32                  i;
+     BOOLEAN                 ResSourceIndex = FALSE;
++    UINT16                  Tmp16;
++    UINT32                  Tmp32;
+ 
+ 
+     InitializerOp = Info->DescriptorTypeOp->Asl.Child;
+@@ -385,8 +392,8 @@ RsDoDwordMemoryDescriptor (
+ 
+         case 6: /* Address Granularity */
+ 
+-            Descriptor->Address32.Granularity =
+-                (UINT32) InitializerOp->Asl.Value.Integer;
++            Tmp32 = (UINT32) InitializerOp->Asl.Value.Integer;
++            Descriptor->Address32.Granularity = AcpiUtReadUint32 (&Tmp32);
+             RsCreateDwordField (InitializerOp, ACPI_RESTAG_GRANULARITY,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (Address32.Granularity));
+             GranOp = InitializerOp;
+@@ -394,8 +401,8 @@ RsDoDwordMemoryDescriptor (
+ 
+         case 7: /* Min Address */
+ 
+-            Descriptor->Address32.Minimum =
+-                (UINT32) InitializerOp->Asl.Value.Integer;
++            Tmp32 = (UINT32) InitializerOp->Asl.Value.Integer;
++            Descriptor->Address32.Minimum = AcpiUtReadUint32 (&Tmp32);
+             RsCreateDwordField (InitializerOp, ACPI_RESTAG_MINADDR,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (Address32.Minimum));
+             MinOp = InitializerOp;
+@@ -403,8 +410,8 @@ RsDoDwordMemoryDescriptor (
+ 
+         case 8: /* Max Address */
+ 
+-            Descriptor->Address32.Maximum =
+-                (UINT32) InitializerOp->Asl.Value.Integer;
++            Tmp32 = (UINT32) InitializerOp->Asl.Value.Integer;
++            Descriptor->Address32.Maximum = AcpiUtReadUint32 (&Tmp32);
+             RsCreateDwordField (InitializerOp, ACPI_RESTAG_MAXADDR,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (Address32.Maximum));
+             MaxOp = InitializerOp;
+@@ -412,16 +419,16 @@ RsDoDwordMemoryDescriptor (
+ 
+         case 9: /* Translation Offset */
+ 
+-            Descriptor->Address32.TranslationOffset =
+-                (UINT32) InitializerOp->Asl.Value.Integer;
++            Tmp32 = (UINT32) InitializerOp->Asl.Value.Integer;
++            Descriptor->Address32.TranslationOffset = AcpiUtReadUint32 (&Tmp32);
+             RsCreateDwordField (InitializerOp, ACPI_RESTAG_TRANSLATION,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (Address32.TranslationOffset));
+             break;
+ 
+         case 10: /* Address Length */
+ 
+-            Descriptor->Address32.AddressLength =
+-                (UINT32) InitializerOp->Asl.Value.Integer;
++            Tmp32 = (UINT32) InitializerOp->Asl.Value.Integer;
++            Descriptor->Address32.AddressLength = AcpiUtReadUint32 (&Tmp32);
+             RsCreateDwordField (InitializerOp, ACPI_RESTAG_LENGTH,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (Address32.AddressLength));
+             LengthOp = InitializerOp;
+@@ -506,11 +513,14 @@ RsDoDwordMemoryDescriptor (
+ 
+     /* Validate the Min/Max/Len/Gran values */
+ 
++    Tmp16 = Descriptor->Address32.ResourceLength;
++    Descriptor->Address32.ResourceLength = AcpiUtReadUint16 (&Tmp16);
++
+     RsLargeAddressCheck (
+-        (UINT64) Descriptor->Address32.Minimum,
+-        (UINT64) Descriptor->Address32.Maximum,
+-        (UINT64) Descriptor->Address32.AddressLength,
+-        (UINT64) Descriptor->Address32.Granularity,
++        (UINT64) AcpiUtReadUint32 (&Descriptor->Address32.Minimum),
++        (UINT64) AcpiUtReadUint32 (&Descriptor->Address32.Maximum),
++        (UINT64) AcpiUtReadUint32 (&Descriptor->Address32.AddressLength),
++        (UINT64) AcpiUtReadUint32 (&Descriptor->Address32.Granularity),
+         Descriptor->Address32.Flags,
+         MinOp, MaxOp, LengthOp, GranOp, Info->DescriptorTypeOp);
+ 
+@@ -549,6 +559,8 @@ RsDoDwordSpaceDescriptor (
+     UINT32                  CurrentByteOffset;
+     UINT32                  i;
+     BOOLEAN                 ResSourceIndex = FALSE;
++    UINT16                  Tmp16;
++    UINT32                  Tmp32;
+ 
+ 
+     InitializerOp = Info->DescriptorTypeOp->Asl.Child;
+@@ -616,8 +628,8 @@ RsDoDwordSpaceDescriptor (
+ 
+         case 6: /* Address Granularity */
+ 
+-            Descriptor->Address32.Granularity =
+-                (UINT32) InitializerOp->Asl.Value.Integer;
++            Tmp32 = (UINT32) InitializerOp->Asl.Value.Integer;
++            Descriptor->Address32.Granularity = AcpiUtReadUint32 (&Tmp32);
+             RsCreateDwordField (InitializerOp, ACPI_RESTAG_GRANULARITY,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (Address32.Granularity));
+             GranOp = InitializerOp;
+@@ -625,8 +637,8 @@ RsDoDwordSpaceDescriptor (
+ 
+         case 7: /* Min Address */
+ 
+-            Descriptor->Address32.Minimum =
+-                (UINT32) InitializerOp->Asl.Value.Integer;
++            Tmp32 = (UINT32) InitializerOp->Asl.Value.Integer;
++            Descriptor->Address32.Minimum = AcpiUtReadUint32 (&Tmp32);
+             RsCreateDwordField (InitializerOp, ACPI_RESTAG_MINADDR,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (Address32.Minimum));
+             MinOp = InitializerOp;
+@@ -634,8 +646,8 @@ RsDoDwordSpaceDescriptor (
+ 
+         case 8: /* Max Address */
+ 
+-            Descriptor->Address32.Maximum =
+-                (UINT32) InitializerOp->Asl.Value.Integer;
++            Tmp32 = (UINT32) InitializerOp->Asl.Value.Integer;
++            Descriptor->Address32.Maximum = AcpiUtReadUint32 (&Tmp32);
+             RsCreateDwordField (InitializerOp, ACPI_RESTAG_MAXADDR,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (Address32.Maximum));
+             MaxOp = InitializerOp;
+@@ -643,16 +655,16 @@ RsDoDwordSpaceDescriptor (
+ 
+         case 9: /* Translation Offset */
+ 
+-            Descriptor->Address32.TranslationOffset =
+-                (UINT32) InitializerOp->Asl.Value.Integer;
++            Tmp32 = (UINT32) InitializerOp->Asl.Value.Integer;
++            Descriptor->Address32.TranslationOffset = AcpiUtReadUint32 (&Tmp32);
+             RsCreateDwordField (InitializerOp, ACPI_RESTAG_TRANSLATION,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (Address32.TranslationOffset));
+             break;
+ 
+         case 10: /* Address Length */
+ 
+-            Descriptor->Address32.AddressLength =
+-                (UINT32) InitializerOp->Asl.Value.Integer;
++            Tmp32 = (UINT32) InitializerOp->Asl.Value.Integer;
++            Descriptor->Address32.AddressLength = AcpiUtReadUint32 (&Tmp32);
+             RsCreateDwordField (InitializerOp, ACPI_RESTAG_LENGTH,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (Address32.AddressLength));
+             LengthOp = InitializerOp;
+@@ -723,11 +735,14 @@ RsDoDwordSpaceDescriptor (
+ 
+     /* Validate the Min/Max/Len/Gran values */
+ 
++    Tmp16 = Descriptor->Address32.ResourceLength;
++    Descriptor->Address32.ResourceLength = AcpiUtReadUint16 (&Tmp16);
++
+     RsLargeAddressCheck (
+-        (UINT64) Descriptor->Address32.Minimum,
+-        (UINT64) Descriptor->Address32.Maximum,
+-        (UINT64) Descriptor->Address32.AddressLength,
+-        (UINT64) Descriptor->Address32.Granularity,
++        (UINT64) AcpiUtReadUint32 (&Descriptor->Address32.Minimum),
++        (UINT64) AcpiUtReadUint32 (&Descriptor->Address32.Maximum),
++        (UINT64) AcpiUtReadUint32 (&Descriptor->Address32.AddressLength),
++        (UINT64) AcpiUtReadUint32 (&Descriptor->Address32.Granularity),
+         Descriptor->Address32.Flags,
+         MinOp, MaxOp, LengthOp, GranOp, Info->DescriptorTypeOp);
+ 
+Index: acpica-unix2-20220331/source/compiler/aslrestype2q.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/compiler/aslrestype2q.c
++++ acpica-unix2-20220331/source/compiler/aslrestype2q.c
+@@ -84,6 +84,7 @@ RsDoQwordIoDescriptor (
+     UINT32                  CurrentByteOffset;
+     UINT32                  i;
+     BOOLEAN                 ResSourceIndex = FALSE;
++    UINT16                  Tmp16;
+ 
+ 
+     InitializerOp = Info->DescriptorTypeOp->Asl.Child;
+@@ -147,7 +148,8 @@ RsDoQwordIoDescriptor (
+ 
+         case 5: /* Address Granularity */
+ 
+-            Descriptor->Address64.Granularity = InitializerOp->Asl.Value.Integer;
++            Descriptor->Address64.Granularity =
++                AcpiUtReadUint64 (&InitializerOp->Asl.Value.Integer);
+             RsCreateQwordField (InitializerOp, ACPI_RESTAG_GRANULARITY,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (Address64.Granularity));
+             GranOp = InitializerOp;
+@@ -155,7 +157,8 @@ RsDoQwordIoDescriptor (
+ 
+         case 6: /* Address Min */
+ 
+-            Descriptor->Address64.Minimum = InitializerOp->Asl.Value.Integer;
++            Descriptor->Address64.Minimum =
++                AcpiUtReadUint64 (&InitializerOp->Asl.Value.Integer);
+             RsCreateQwordField (InitializerOp, ACPI_RESTAG_MINADDR,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (Address64.Minimum));
+             MinOp = InitializerOp;
+@@ -163,7 +166,8 @@ RsDoQwordIoDescriptor (
+ 
+         case 7: /* Address Max */
+ 
+-            Descriptor->Address64.Maximum = InitializerOp->Asl.Value.Integer;
++            Descriptor->Address64.Maximum =
++                AcpiUtReadUint64 (&InitializerOp->Asl.Value.Integer);
+             RsCreateQwordField (InitializerOp, ACPI_RESTAG_MAXADDR,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (Address64.Maximum));
+             MaxOp = InitializerOp;
+@@ -171,14 +175,16 @@ RsDoQwordIoDescriptor (
+ 
+         case 8: /* Translation Offset */
+ 
+-            Descriptor->Address64.TranslationOffset = InitializerOp->Asl.Value.Integer;
++            Descriptor->Address64.TranslationOffset =
++                AcpiUtReadUint64 (&InitializerOp->Asl.Value.Integer);
+             RsCreateByteField (InitializerOp, ACPI_RESTAG_TRANSLATION,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (Address64.TranslationOffset));
+             break;
+ 
+         case 9: /* Address Length */
+ 
+-            Descriptor->Address64.AddressLength = InitializerOp->Asl.Value.Integer;
++            Descriptor->Address64.AddressLength =
++                AcpiUtReadUint64 (&InitializerOp->Asl.Value.Integer);
+             RsCreateQwordField (InitializerOp, ACPI_RESTAG_LENGTH,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (Address64.AddressLength));
+             LengthOp = InitializerOp;
+@@ -262,11 +268,14 @@ RsDoQwordIoDescriptor (
+ 
+     /* Validate the Min/Max/Len/Gran values */
+ 
++    Tmp16 = Descriptor->Address64.ResourceLength;
++    Descriptor->Address64.ResourceLength = AcpiUtReadUint16 (&Tmp16);
++
+     RsLargeAddressCheck (
+-        Descriptor->Address64.Minimum,
+-        Descriptor->Address64.Maximum,
+-        Descriptor->Address64.AddressLength,
+-        Descriptor->Address64.Granularity,
++        AcpiUtReadUint64 (&Descriptor->Address64.Minimum),
++        AcpiUtReadUint64 (&Descriptor->Address64.Maximum),
++        AcpiUtReadUint64 (&Descriptor->Address64.AddressLength),
++        AcpiUtReadUint64 (&Descriptor->Address64.Granularity),
+         Descriptor->Address64.Flags,
+         MinOp, MaxOp, LengthOp, GranOp, Info->DescriptorTypeOp);
+ 
+@@ -305,6 +314,7 @@ RsDoQwordMemoryDescriptor (
+     UINT32                  CurrentByteOffset;
+     UINT32                  i;
+     BOOLEAN                 ResSourceIndex = FALSE;
++    UINT16                  Tmp16;
+ 
+ 
+     InitializerOp = Info->DescriptorTypeOp->Asl.Child;
+@@ -375,7 +385,8 @@ RsDoQwordMemoryDescriptor (
+ 
+         case 6: /* Address Granularity */
+ 
+-            Descriptor->Address64.Granularity = InitializerOp->Asl.Value.Integer;
++            Descriptor->Address64.Granularity =
++                AcpiUtReadUint64 (&InitializerOp->Asl.Value.Integer);
+             RsCreateQwordField (InitializerOp, ACPI_RESTAG_GRANULARITY,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (Address64.Granularity));
+             GranOp = InitializerOp;
+@@ -383,7 +394,8 @@ RsDoQwordMemoryDescriptor (
+ 
+         case 7: /* Min Address */
+ 
+-            Descriptor->Address64.Minimum = InitializerOp->Asl.Value.Integer;
++            Descriptor->Address64.Minimum =
++                AcpiUtReadUint64 (&InitializerOp->Asl.Value.Integer);
+             RsCreateQwordField (InitializerOp, ACPI_RESTAG_MINADDR,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (Address64.Minimum));
+             MinOp = InitializerOp;
+@@ -391,7 +403,8 @@ RsDoQwordMemoryDescriptor (
+ 
+         case 8: /* Max Address */
+ 
+-            Descriptor->Address64.Maximum = InitializerOp->Asl.Value.Integer;
++            Descriptor->Address64.Maximum =
++                AcpiUtReadUint64 (&InitializerOp->Asl.Value.Integer);
+             RsCreateQwordField (InitializerOp, ACPI_RESTAG_MAXADDR,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (Address64.Maximum));
+             MaxOp = InitializerOp;
+@@ -399,14 +412,16 @@ RsDoQwordMemoryDescriptor (
+ 
+         case 9: /* Translation Offset */
+ 
+-            Descriptor->Address64.TranslationOffset = InitializerOp->Asl.Value.Integer;
++            Descriptor->Address64.TranslationOffset =
++                AcpiUtReadUint64 (&InitializerOp->Asl.Value.Integer);
+             RsCreateQwordField (InitializerOp, ACPI_RESTAG_TRANSLATION,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (Address64.TranslationOffset));
+             break;
+ 
+         case 10: /* Address Length */
+ 
+-            Descriptor->Address64.AddressLength = InitializerOp->Asl.Value.Integer;
++            Descriptor->Address64.AddressLength =
++                AcpiUtReadUint64 (&InitializerOp->Asl.Value.Integer);
+             RsCreateQwordField (InitializerOp, ACPI_RESTAG_LENGTH,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (Address64.AddressLength));
+             LengthOp = InitializerOp;
+@@ -491,11 +506,14 @@ RsDoQwordMemoryDescriptor (
+ 
+     /* Validate the Min/Max/Len/Gran values */
+ 
++    Tmp16 = Descriptor->Address64.ResourceLength;
++    Descriptor->Address64.ResourceLength = AcpiUtReadUint16 (&Tmp16);
++
+     RsLargeAddressCheck (
+-        Descriptor->Address64.Minimum,
+-        Descriptor->Address64.Maximum,
+-        Descriptor->Address64.AddressLength,
+-        Descriptor->Address64.Granularity,
++        AcpiUtReadUint64 (&Descriptor->Address64.Minimum),
++        AcpiUtReadUint64 (&Descriptor->Address64.Maximum),
++        AcpiUtReadUint64 (&Descriptor->Address64.AddressLength),
++        AcpiUtReadUint64 (&Descriptor->Address64.Granularity),
+         Descriptor->Address64.Flags,
+         MinOp, MaxOp, LengthOp, GranOp, Info->DescriptorTypeOp);
+ 
+@@ -534,6 +552,7 @@ RsDoQwordSpaceDescriptor (
+     UINT32                  CurrentByteOffset;
+     UINT32                  i;
+     BOOLEAN                 ResSourceIndex = FALSE;
++    UINT16                  Tmp16;
+ 
+ 
+     InitializerOp = Info->DescriptorTypeOp->Asl.Child;
+@@ -601,7 +620,8 @@ RsDoQwordSpaceDescriptor (
+ 
+         case 6: /* Address Granularity */
+ 
+-            Descriptor->Address64.Granularity = InitializerOp->Asl.Value.Integer;
++            Descriptor->Address64.Granularity =
++                AcpiUtReadUint64 (&InitializerOp->Asl.Value.Integer);
+             RsCreateQwordField (InitializerOp, ACPI_RESTAG_GRANULARITY,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (Address64.Granularity));
+             GranOp = InitializerOp;
+@@ -609,7 +629,8 @@ RsDoQwordSpaceDescriptor (
+ 
+         case 7: /* Min Address */
+ 
+-            Descriptor->Address64.Minimum = InitializerOp->Asl.Value.Integer;
++            Descriptor->Address64.Minimum =
++                AcpiUtReadUint64 (&InitializerOp->Asl.Value.Integer);
+             RsCreateQwordField (InitializerOp, ACPI_RESTAG_MINADDR,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (Address64.Minimum));
+             MinOp = InitializerOp;
+@@ -617,7 +638,8 @@ RsDoQwordSpaceDescriptor (
+ 
+         case 8: /* Max Address */
+ 
+-            Descriptor->Address64.Maximum = InitializerOp->Asl.Value.Integer;
++            Descriptor->Address64.Maximum =
++                AcpiUtReadUint64 (&InitializerOp->Asl.Value.Integer);
+             RsCreateQwordField (InitializerOp, ACPI_RESTAG_MAXADDR,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (Address64.Maximum));
+             MaxOp = InitializerOp;
+@@ -625,14 +647,16 @@ RsDoQwordSpaceDescriptor (
+ 
+         case 9: /* Translation Offset */
+ 
+-            Descriptor->Address64.TranslationOffset = InitializerOp->Asl.Value.Integer;
++            Descriptor->Address64.TranslationOffset =
++                AcpiUtReadUint64 (&InitializerOp->Asl.Value.Integer);
+             RsCreateQwordField (InitializerOp, ACPI_RESTAG_TRANSLATION,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (Address64.TranslationOffset));
+             break;
+ 
+         case 10: /* Address Length */
+ 
+-            Descriptor->Address64.AddressLength = InitializerOp->Asl.Value.Integer;
++            Descriptor->Address64.AddressLength =
++                AcpiUtReadUint64 (&InitializerOp->Asl.Value.Integer);
+             RsCreateQwordField (InitializerOp, ACPI_RESTAG_LENGTH,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (Address64.AddressLength));
+             LengthOp = InitializerOp;
+@@ -702,11 +726,14 @@ RsDoQwordSpaceDescriptor (
+ 
+     /* Validate the Min/Max/Len/Gran values */
+ 
++    Tmp16 = Descriptor->Address64.ResourceLength;
++    Descriptor->Address64.ResourceLength = AcpiUtReadUint16 (&Tmp16);
++
+     RsLargeAddressCheck (
+-        Descriptor->Address64.Minimum,
+-        Descriptor->Address64.Maximum,
+-        Descriptor->Address64.AddressLength,
+-        Descriptor->Address64.Granularity,
++        AcpiUtReadUint64 (&Descriptor->Address64.Minimum),
++        AcpiUtReadUint64 (&Descriptor->Address64.Maximum),
++        AcpiUtReadUint64 (&Descriptor->Address64.AddressLength),
++        AcpiUtReadUint64 (&Descriptor->Address64.Granularity),
+         Descriptor->Address64.Flags,
+         MinOp, MaxOp, LengthOp, GranOp, Info->DescriptorTypeOp);
+ 
+Index: acpica-unix2-20220331/source/compiler/aslrestype2w.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/compiler/aslrestype2w.c
++++ acpica-unix2-20220331/source/compiler/aslrestype2w.c
+@@ -84,6 +84,7 @@ RsDoWordIoDescriptor (
+     UINT32                  CurrentByteOffset;
+     UINT32                  i;
+     BOOLEAN                 ResSourceIndex = FALSE;
++    UINT16                  Tmp16;
+ 
+ 
+     InitializerOp = Info->DescriptorTypeOp->Asl.Child;
+@@ -147,7 +148,8 @@ RsDoWordIoDescriptor (
+ 
+         case 5: /* Address Granularity */
+ 
+-            Descriptor->Address16.Granularity = (UINT16) InitializerOp->Asl.Value.Integer;
++            Tmp16 = (UINT16) InitializerOp->Asl.Value.Integer;
++            Descriptor->Address16.Granularity = AcpiUtReadUint16 (&Tmp16);
+             RsCreateWordField (InitializerOp, ACPI_RESTAG_GRANULARITY,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (Address16.Granularity));
+             GranOp = InitializerOp;
+@@ -155,7 +157,8 @@ RsDoWordIoDescriptor (
+ 
+         case 6: /* Address Min */
+ 
+-            Descriptor->Address16.Minimum = (UINT16) InitializerOp->Asl.Value.Integer;
++            Tmp16 = (UINT16) InitializerOp->Asl.Value.Integer;
++            Descriptor->Address16.Minimum = AcpiUtReadUint16 (&Tmp16);
+             RsCreateWordField (InitializerOp, ACPI_RESTAG_MINADDR,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (Address16.Minimum));
+             MinOp = InitializerOp;
+@@ -163,7 +166,8 @@ RsDoWordIoDescriptor (
+ 
+         case 7: /* Address Max */
+ 
+-            Descriptor->Address16.Maximum = (UINT16) InitializerOp->Asl.Value.Integer;
++            Tmp16 = (UINT16) InitializerOp->Asl.Value.Integer;
++            Descriptor->Address16.Maximum = AcpiUtReadUint16 (&Tmp16);
+             RsCreateWordField (InitializerOp, ACPI_RESTAG_MAXADDR,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (Address16.Maximum));
+             MaxOp = InitializerOp;
+@@ -171,14 +175,16 @@ RsDoWordIoDescriptor (
+ 
+         case 8: /* Translation Offset */
+ 
+-            Descriptor->Address16.TranslationOffset = (UINT16) InitializerOp->Asl.Value.Integer;
++            Tmp16 = (UINT16) InitializerOp->Asl.Value.Integer;
++            Descriptor->Address16.TranslationOffset = AcpiUtReadUint16 (&Tmp16);
+             RsCreateWordField (InitializerOp, ACPI_RESTAG_TRANSLATION,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (Address16.TranslationOffset));
+             break;
+ 
+         case 9: /* Address Length */
+ 
+-            Descriptor->Address16.AddressLength = (UINT16) InitializerOp->Asl.Value.Integer;
++            Tmp16 = (UINT16) InitializerOp->Asl.Value.Integer;
++            Descriptor->Address16.AddressLength = AcpiUtReadUint16 (&Tmp16);
+             RsCreateWordField (InitializerOp, ACPI_RESTAG_LENGTH,
+                  CurrentByteOffset + ASL_RESDESC_OFFSET (Address16.AddressLength));
+             LengthOp = InitializerOp;
+@@ -263,13 +269,17 @@ RsDoWordIoDescriptor (
+     /* Validate the Min/Max/Len/Gran values */
+ 
+     RsLargeAddressCheck (
+-        (UINT64) Descriptor->Address16.Minimum,
+-        (UINT64) Descriptor->Address16.Maximum,
+-        (UINT64) Descriptor->Address16.AddressLength,
+-        (UINT64) Descriptor->Address16.Granularity,
++        (UINT64) AcpiUtReadUint16 (&Descriptor->Address16.Minimum),
++        (UINT64) AcpiUtReadUint16 (&Descriptor->Address16.Maximum),
++        (UINT64) AcpiUtReadUint16 (&Descriptor->Address16.AddressLength),
++        (UINT64) AcpiUtReadUint16 (&Descriptor->Address16.Granularity),
+         Descriptor->Address16.Flags,
+         MinOp, MaxOp, LengthOp, GranOp, Info->DescriptorTypeOp);
+ 
++    /* correct enddianness */
++    Tmp16 = Descriptor->Address16.ResourceLength;
++    Descriptor->Address16.ResourceLength = AcpiUtReadUint16 (&Tmp16);
++
+     Rnode->BufferLength = sizeof (AML_RESOURCE_ADDRESS16) +
+         OptionIndex + StringLength;
+     return (Rnode);
+@@ -305,6 +315,7 @@ RsDoWordBusNumberDescriptor (
+     UINT32                  CurrentByteOffset;
+     UINT32                  i;
+     BOOLEAN                 ResSourceIndex = FALSE;
++    UINT16                  Tmp16;
+ 
+ 
+     InitializerOp = Info->DescriptorTypeOp->Asl.Child;
+@@ -361,8 +372,8 @@ RsDoWordBusNumberDescriptor (
+ 
+         case 4: /* Address Granularity */
+ 
+-            Descriptor->Address16.Granularity =
+-                (UINT16) InitializerOp->Asl.Value.Integer;
++            Tmp16 = (UINT16) InitializerOp->Asl.Value.Integer;
++            Descriptor->Address16.Granularity = AcpiUtReadUint16 (&Tmp16);
+             RsCreateWordField (InitializerOp, ACPI_RESTAG_GRANULARITY,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (Address16.Granularity));
+             GranOp = InitializerOp;
+@@ -370,8 +381,8 @@ RsDoWordBusNumberDescriptor (
+ 
+         case 5: /* Min Address */
+ 
+-            Descriptor->Address16.Minimum =
+-                (UINT16) InitializerOp->Asl.Value.Integer;
++            Tmp16 = (UINT16) InitializerOp->Asl.Value.Integer;
++            Descriptor->Address16.Minimum = AcpiUtReadUint16 (&Tmp16);
+             RsCreateWordField (InitializerOp, ACPI_RESTAG_MINADDR,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (Address16.Minimum));
+             MinOp = InitializerOp;
+@@ -379,8 +390,8 @@ RsDoWordBusNumberDescriptor (
+ 
+         case 6: /* Max Address */
+ 
+-            Descriptor->Address16.Maximum =
+-                (UINT16) InitializerOp->Asl.Value.Integer;
++            Tmp16 = (UINT16) InitializerOp->Asl.Value.Integer;
++            Descriptor->Address16.Maximum = AcpiUtReadUint16 (&Tmp16);
+             RsCreateWordField (InitializerOp, ACPI_RESTAG_MAXADDR,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (Address16.Maximum));
+             MaxOp = InitializerOp;
+@@ -388,16 +399,16 @@ RsDoWordBusNumberDescriptor (
+ 
+         case 7: /* Translation Offset */
+ 
+-            Descriptor->Address16.TranslationOffset =
+-                (UINT16) InitializerOp->Asl.Value.Integer;
++            Tmp16 = (UINT16) InitializerOp->Asl.Value.Integer;
++            Descriptor->Address16.TranslationOffset = AcpiUtReadUint16 (&Tmp16);
+             RsCreateWordField (InitializerOp, ACPI_RESTAG_TRANSLATION,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (Address16.TranslationOffset));
+             break;
+ 
+         case 8: /* Address Length */
+ 
+-            Descriptor->Address16.AddressLength =
+-                (UINT16) InitializerOp->Asl.Value.Integer;
++            Tmp16 = (UINT16) InitializerOp->Asl.Value.Integer;
++            Descriptor->Address16.AddressLength = AcpiUtReadUint16 (&Tmp16);
+             RsCreateWordField (InitializerOp, ACPI_RESTAG_LENGTH,
+                  CurrentByteOffset + ASL_RESDESC_OFFSET (Address16.AddressLength));
+             LengthOp = InitializerOp;
+@@ -468,13 +479,17 @@ RsDoWordBusNumberDescriptor (
+     /* Validate the Min/Max/Len/Gran values */
+ 
+     RsLargeAddressCheck (
+-        (UINT64) Descriptor->Address16.Minimum,
+-        (UINT64) Descriptor->Address16.Maximum,
+-        (UINT64) Descriptor->Address16.AddressLength,
+-        (UINT64) Descriptor->Address16.Granularity,
++        (UINT64) AcpiUtReadUint16 (&Descriptor->Address16.Minimum),
++        (UINT64) AcpiUtReadUint16 (&Descriptor->Address16.Maximum),
++        (UINT64) AcpiUtReadUint16 (&Descriptor->Address16.AddressLength),
++        (UINT64) AcpiUtReadUint16 (&Descriptor->Address16.Granularity),
+         Descriptor->Address16.Flags,
+         MinOp, MaxOp, LengthOp, GranOp, Info->DescriptorTypeOp);
+ 
++    /* correct enddianness */
++    Tmp16 = Descriptor->Address16.ResourceLength;
++    Descriptor->Address16.ResourceLength = AcpiUtReadUint16 (&Tmp16);
++
+     Rnode->BufferLength = sizeof (AML_RESOURCE_ADDRESS16) +
+         OptionIndex + StringLength;
+     return (Rnode);
+@@ -510,6 +525,7 @@ RsDoWordSpaceDescriptor (
+     UINT32                  CurrentByteOffset;
+     UINT32                  i;
+     BOOLEAN                 ResSourceIndex = FALSE;
++    UINT16                  Tmp16;
+ 
+ 
+     InitializerOp = Info->DescriptorTypeOp->Asl.Child;
+@@ -577,8 +593,8 @@ RsDoWordSpaceDescriptor (
+ 
+         case 6: /* Address Granularity */
+ 
+-            Descriptor->Address16.Granularity =
+-                (UINT16) InitializerOp->Asl.Value.Integer;
++            Tmp16 = (UINT16) InitializerOp->Asl.Value.Integer;
++            Descriptor->Address16.Granularity = AcpiUtReadUint16 (&Tmp16);
+             RsCreateWordField (InitializerOp, ACPI_RESTAG_GRANULARITY,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (Address16.Granularity));
+             GranOp = InitializerOp;
+@@ -586,8 +602,8 @@ RsDoWordSpaceDescriptor (
+ 
+         case 7: /* Min Address */
+ 
+-            Descriptor->Address16.Minimum =
+-                (UINT16) InitializerOp->Asl.Value.Integer;
++            Tmp16 = (UINT16) InitializerOp->Asl.Value.Integer;
++            Descriptor->Address16.Minimum = AcpiUtReadUint16 (&Tmp16);
+             RsCreateWordField (InitializerOp, ACPI_RESTAG_MINADDR,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (Address16.Minimum));
+             MinOp = InitializerOp;
+@@ -595,8 +611,8 @@ RsDoWordSpaceDescriptor (
+ 
+         case 8: /* Max Address */
+ 
+-            Descriptor->Address16.Maximum =
+-                (UINT16) InitializerOp->Asl.Value.Integer;
++            Tmp16 = (UINT16) InitializerOp->Asl.Value.Integer;
++            Descriptor->Address16.Maximum = AcpiUtReadUint16 (&Tmp16);
+             RsCreateWordField (InitializerOp, ACPI_RESTAG_MAXADDR,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (Address16.Maximum));
+             MaxOp = InitializerOp;
+@@ -604,16 +620,16 @@ RsDoWordSpaceDescriptor (
+ 
+         case 9: /* Translation Offset */
+ 
+-            Descriptor->Address16.TranslationOffset =
+-                (UINT16) InitializerOp->Asl.Value.Integer;
++            Tmp16 = (UINT16) InitializerOp->Asl.Value.Integer;
++            Descriptor->Address16.TranslationOffset = AcpiUtReadUint16 (&Tmp16);
+             RsCreateWordField (InitializerOp, ACPI_RESTAG_TRANSLATION,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (Address16.TranslationOffset));
+             break;
+ 
+         case 10: /* Address Length */
+ 
+-            Descriptor->Address16.AddressLength =
+-                (UINT16) InitializerOp->Asl.Value.Integer;
++            Tmp16 = (UINT16) InitializerOp->Asl.Value.Integer;
++            Descriptor->Address16.AddressLength = AcpiUtReadUint16 (&Tmp16);
+             RsCreateWordField (InitializerOp, ACPI_RESTAG_LENGTH,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (Address16.AddressLength));
+             LengthOp = InitializerOp;
+@@ -684,13 +700,17 @@ RsDoWordSpaceDescriptor (
+     /* Validate the Min/Max/Len/Gran values */
+ 
+     RsLargeAddressCheck (
+-        (UINT64) Descriptor->Address16.Minimum,
+-        (UINT64) Descriptor->Address16.Maximum,
+-        (UINT64) Descriptor->Address16.AddressLength,
+-        (UINT64) Descriptor->Address16.Granularity,
++        (UINT64) AcpiUtReadUint16 (&Descriptor->Address16.Minimum),
++        (UINT64) AcpiUtReadUint16 (&Descriptor->Address16.Maximum),
++        (UINT64) AcpiUtReadUint16 (&Descriptor->Address16.AddressLength),
++        (UINT64) AcpiUtReadUint16 (&Descriptor->Address16.Granularity),
+         Descriptor->Address16.Flags,
+         MinOp, MaxOp, LengthOp, GranOp, Info->DescriptorTypeOp);
+ 
++    /* correct enddianness */
++    Tmp16 = Descriptor->Address16.ResourceLength;
++    Descriptor->Address16.ResourceLength = AcpiUtReadUint16 (&Tmp16);
++
+     Rnode->BufferLength = sizeof (AML_RESOURCE_ADDRESS16) +
+         OptionIndex + StringLength;
+     return (Rnode);
+Index: acpica-unix2-20220331/source/compiler/dttable2.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/compiler/dttable2.c
++++ acpica-unix2-20220331/source/compiler/dttable2.c
+@@ -3046,7 +3046,8 @@ DtCompileWpbt (
+ 
+     /* Extract the length of the Arguments buffer, insert into main table */
+ 
+-    Table->ArgumentsLength = (UINT16) Subtable->TotalLength;
++    AcpiUtWriteUint (&Table->ArgumentsLength, sizeof (UINT16),
++           &Subtable->TotalLength, sizeof (UINT32));
+     DtInsertSubtable (ParentTable, Subtable);
+     return (AE_OK);
+ }
+Index: acpica-unix2-20220331/source/components/disassembler/dmbuffer.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/components/disassembler/dmbuffer.c
++++ acpica-unix2-20220331/source/components/disassembler/dmbuffer.c
+@@ -204,7 +204,7 @@ AcpiDmByteList (
+ 
+ 
+     ByteData = Op->Named.Data;
+-    ByteCount = (UINT32) Op->Common.Value.Integer;
++    ByteCount = (UINT32) Op->Common.Value.Size;
+ 
+     /*
+      * The byte list belongs to a buffer, and can be produced by either
+@@ -308,7 +308,7 @@ AcpiDmIsUuidBuffer (
+     /* Extract the byte list info */
+ 
+     ByteData = NextOp->Named.Data;
+-    ByteCount = (UINT32) NextOp->Common.Value.Integer;
++    ByteCount = (UINT32) NextOp->Common.Value.Size;
+ 
+     /* Byte count must be exactly 16 */
+ 
+@@ -436,7 +436,7 @@ AcpiDmIsUnicodeBuffer (
+     /* Extract the byte list info */
+ 
+     ByteData = NextOp->Named.Data;
+-    ByteCount = (UINT32) NextOp->Common.Value.Integer;
++    ByteCount = (UINT32) NextOp->Common.Value.Size;
+     WordCount = ACPI_DIV_2 (ByteCount);
+ 
+     /*
+@@ -878,14 +878,14 @@ AcpiDmUnicode (
+     /* Extract the buffer info as a WORD buffer */
+ 
+     WordData = ACPI_CAST_PTR (UINT16, Op->Named.Data);
+-    WordCount = ACPI_DIV_2 (((UINT32) Op->Common.Value.Integer));
++    WordCount = ACPI_DIV_2 (((UINT32) Op->Common.Value.Size));
+ 
+     /* Write every other byte as an ASCII character */
+ 
+     AcpiOsPrintf ("\"");
+     for (i = 0; i < (WordCount - 1); i++)
+     {
+-        OutputValue = (int) WordData[i];
++        OutputValue = (int) AcpiUtReadUint16 (&WordData[i]);
+ 
+         /* Handle values that must be escaped */
+ 
+@@ -947,7 +947,29 @@ AcpiDmGetHardwareIdType (
+ 
+         /* Swap from little-endian to big-endian to simplify conversion */
+ 
+-        BigEndianId = AcpiUtDwordByteSwap ((UINT32) Op->Common.Value.Integer);
++        BigEndianId = (UINT32) Op->Common.Value.Integer;
++        if (UtIsBigEndianMachine())
++        {
++            /*
++             * We'll need to store the bytes in little-endian order
++             * so they can be re-used properly later since everything is
++             * assumed to be in little-endian form.
++             */
++
++	     UINT32 *Ptr = (UINT32 *)(&Op->Common.Value.Integer);
++	     *Ptr = AcpiUtDwordByteSwap (BigEndianId);
++        }
++        else
++        {
++            /*
++             * We'll need to just use the bytes in big-endian order;
++             * they're already in little-endian order.
++             */
++
++            UINT32 Tmp32 = BigEndianId;
++
++            BigEndianId = AcpiUtDwordByteSwap ((UINT32) Tmp32);
++        }
+ 
+         /* Create the 3 leading ASCII letters */
+ 
+@@ -1073,11 +1095,12 @@ AcpiDmDecompressEisaId (
+ {
+     char                    IdBuffer[ACPI_EISAID_STRING_SIZE];
+     const AH_DEVICE_ID      *Info;
++    UINT32                  Tmp32 = EncodedId;
+ 
+ 
+     /* Convert EISAID to a string an emit the statement */
+ 
+-    AcpiExEisaIdToString (IdBuffer, EncodedId);
++    AcpiExEisaIdToString (IdBuffer, AcpiUtReadUint32 (&Tmp32));
+     AcpiOsPrintf ("EisaId (\"%s\")", IdBuffer);
+ 
+     /* If we know about the ID, emit the description */
+Index: acpica-unix2-20220331/source/components/disassembler/dmopcode.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/components/disassembler/dmopcode.c
++++ acpica-unix2-20220331/source/components/disassembler/dmopcode.c
+@@ -778,7 +778,9 @@ AcpiDmDisassembleOneOp (
+         }
+         else
+         {
+-            AcpiOsPrintf ("0x%4.4X", (UINT32) Op->Common.Value.Integer);
++            UINT16 Tmp16 = (UINT16) Op->Common.Value.Integer;
++
++            AcpiOsPrintf ("0x%4.4X", (UINT32) AcpiUtReadUint16 (&Tmp16));
+         }
+         break;
+ 
+@@ -790,14 +792,19 @@ AcpiDmDisassembleOneOp (
+         }
+         else
+         {
+-            AcpiOsPrintf ("0x%8.8X", (UINT32) Op->Common.Value.Integer);
++            UINT32 Tmp32 = (UINT32) Op->Common.Value.Integer;
++
++            AcpiOsPrintf ("0x%8.8X", (UINT32) AcpiUtReadUint32 (&Tmp32));
+         }
+         break;
+ 
+     case AML_QWORD_OP:
+ 
+-        AcpiOsPrintf ("0x%8.8X%8.8X",
+-            ACPI_FORMAT_UINT64 (Op->Common.Value.Integer));
++        {
++	    UINT64 Tmp64 = AcpiUtReadUint64 (&Op->Common.Value.Integer);
++
++            AcpiOsPrintf ("0x%8.8X%8.8X", ACPI_FORMAT_UINT64 (Tmp64));
++        }
+         break;
+ 
+     case AML_STRING_OP:
+@@ -887,18 +894,18 @@ AcpiDmDisassembleOneOp (
+         AcpiOsPrintf (",");
+         ASL_CV_PRINT_ONE_COMMENT (Op, AML_NAMECOMMENT, NULL, 0);
+         AcpiOsPrintf ("%*.s  %u", (unsigned) (5 - Length), " ",
+-            (UINT32) Op->Common.Value.Integer);
++            (UINT32) Op->Common.Value.Size);
+ 
+         AcpiDmCommaIfFieldMember (Op);
+ 
+-        Info->BitOffset += (UINT32) Op->Common.Value.Integer;
++        Info->BitOffset += (UINT32) Op->Common.Value.Size;
+         break;
+ 
+     case AML_INT_RESERVEDFIELD_OP:
+ 
+         /* Offset() -- Must account for previous offsets */
+ 
+-        Offset = (UINT32) Op->Common.Value.Integer;
++        Offset = (UINT32) Op->Common.Value.Size;
+         Info->BitOffset += Offset;
+ 
+         if (Info->BitOffset % 8 == 0)
+Index: acpica-unix2-20220331/source/components/disassembler/dmresrc.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/components/disassembler/dmresrc.c
++++ acpica-unix2-20220331/source/components/disassembler/dmresrc.c
+@@ -417,7 +417,7 @@ AcpiDmIsResourceTemplate (
+         return (AE_TYPE);
+     }
+ 
+-    DeclaredBufferLength = NextOp->Common.Value.Size;
++    DeclaredBufferLength = NextOp->Common.Value.Integer;
+ 
+     /* Get the length of the raw initialization byte list */
+ 
+Index: acpica-unix2-20220331/source/components/disassembler/dmresrcl.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/components/disassembler/dmresrcl.c
++++ acpica-unix2-20220331/source/components/disassembler/dmresrcl.c
+@@ -141,6 +141,8 @@ AcpiDmMemoryFields (
+     UINT32                  Level)
+ {
+     UINT32                  i;
++    UINT16                  Tmp16;
++    UINT32                  Tmp32;
+ 
+ 
+     for (i = 0; i < 4; i++)
+@@ -151,14 +153,16 @@ AcpiDmMemoryFields (
+         {
+         case 16:
+ 
+-            AcpiDmDumpInteger16 (ACPI_CAST_PTR (UINT16, Source)[i],
+-                AcpiDmMemoryNames[i]);
++            Tmp16 = ACPI_CAST_PTR (UINT16, Source)[i];
++            AcpiDmDumpInteger16 (AcpiUtReadUint16 (&Tmp16),
++                     AcpiDmMemoryNames[i]);
+             break;
+ 
+         case 32:
+ 
+-            AcpiDmDumpInteger32 (ACPI_CAST_PTR (UINT32, Source)[i],
+-                AcpiDmMemoryNames[i]);
++            Tmp32 = ACPI_CAST_PTR (UINT32, Source)[i];
++            AcpiDmDumpInteger32 (AcpiUtReadUint32 (&Tmp32),
++                     AcpiDmMemoryNames[i]);
+             break;
+ 
+         default:
+@@ -190,6 +194,9 @@ AcpiDmAddressFields (
+     UINT32                  Level)
+ {
+     UINT32                  i;
++    UINT16                  Tmp16;
++    UINT32                  Tmp32;
++    UINT64                  Tmp64;
+ 
+ 
+     AcpiOsPrintf ("\n");
+@@ -202,20 +209,23 @@ AcpiDmAddressFields (
+         {
+         case 16:
+ 
+-            AcpiDmDumpInteger16 (ACPI_CAST_PTR (UINT16, Source)[i],
+-                AcpiDmAddressNames[i]);
++            Tmp16 = ACPI_CAST_PTR (UINT16, Source)[i];
++            AcpiDmDumpInteger16 (AcpiUtReadUint16 (&Tmp16),
++                         AcpiDmAddressNames[i]);
+             break;
+ 
+         case 32:
+ 
+-            AcpiDmDumpInteger32 (ACPI_CAST_PTR (UINT32, Source)[i],
+-                AcpiDmAddressNames[i]);
++            Tmp32 = ACPI_CAST_PTR (UINT32, Source)[i];
++            AcpiDmDumpInteger32 (AcpiUtReadUint32 (&Tmp32),
++                         AcpiDmAddressNames[i]);
+             break;
+ 
+         case 64:
+ 
+-            AcpiDmDumpInteger64 (ACPI_CAST_PTR (UINT64, Source)[i],
+-                AcpiDmAddressNames[i]);
++            Tmp64 = ACPI_CAST_PTR (UINT64, Source)[i];
++            AcpiDmDumpInteger64 (AcpiUtReadUint64 (&Tmp64),
++                         AcpiDmAddressNames[i]);
+             break;
+ 
+         default:
+@@ -749,7 +759,7 @@ AcpiDmExtendedDescriptor (
+     /* Extra field for this descriptor only */
+ 
+     AcpiDmIndent (Level + 1);
+-    AcpiDmDumpInteger64 (Resource->ExtAddress64.TypeSpecific,
++    AcpiDmDumpInteger64 (AcpiUtReadUint64 (&Resource->ExtAddress64.TypeSpecific),
+         "Type-Specific Attributes");
+ 
+     /* Insert a descriptor name */
+@@ -876,11 +886,11 @@ AcpiDmFixedMemory32Descriptor (
+         AcpiGbl_RwDecode [ACPI_GET_1BIT_FLAG (Resource->FixedMemory32.Flags)]);
+ 
+     AcpiDmIndent (Level + 1);
+-    AcpiDmDumpInteger32 (Resource->FixedMemory32.Address,
++    AcpiDmDumpInteger32 (AcpiUtReadUint32 (&Resource->FixedMemory32.Address),
+         "Address Base");
+ 
+     AcpiDmIndent (Level + 1);
+-    AcpiDmDumpInteger32 (Resource->FixedMemory32.AddressLength,
++    AcpiDmDumpInteger32 (AcpiUtReadUint32 (&Resource->FixedMemory32.AddressLength),
+         "Address Length");
+ 
+     /* Insert a descriptor name */
+@@ -926,7 +936,8 @@ AcpiDmGenericRegisterDescriptor (
+     AcpiDmDumpInteger8 (Resource->GenericReg.BitOffset, "Bit Offset");
+ 
+     AcpiDmIndent (Level + 1);
+-    AcpiDmDumpInteger64 (Resource->GenericReg.Address, "Address");
++    AcpiDmDumpInteger64 (AcpiUtReadUint64 (&Resource->GenericReg.Address),
++                 "Address");
+ 
+     /* Optional field for ACPI 3.0 */
+ 
+@@ -989,7 +1000,7 @@ AcpiDmInterruptDescriptor (
+     AcpiDmResourceSource (Resource,
+         sizeof (AML_RESOURCE_EXTENDED_IRQ) +
+             ((UINT32) Resource->ExtendedIrq.InterruptCount - 1) * sizeof (UINT32),
+-        Resource->ExtendedIrq.ResourceLength);
++            AcpiUtReadUint16 (&Resource->ExtendedIrq.ResourceLength));
+ 
+     /* Insert a descriptor name */
+ 
+@@ -1004,7 +1015,7 @@ AcpiDmInterruptDescriptor (
+     {
+         AcpiDmIndent (Level + 1);
+         AcpiOsPrintf ("0x%8.8X,\n",
+-            (UINT32) Resource->ExtendedIrq.Interrupts[i]);
++            AcpiUtReadUint32 (&Resource->ExtendedIrq.Interrupts[i]));
+     }
+ 
+     AcpiDmIndent (Level);
+Index: acpica-unix2-20220331/source/components/disassembler/dmresrcl2.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/components/disassembler/dmresrcl2.c
++++ acpica-unix2-20220331/source/components/disassembler/dmresrcl2.c
+@@ -199,22 +199,27 @@ AcpiDmGpioCommon (
+     char                    *DeviceName = NULL;
+     UINT32                  PinCount;
+     UINT32                  i;
++    UINT16                  ResSourceOffset;
++    UINT16                  VendorOffset;
++    UINT16                  VendorLength;
++    UINT16                  Tmp16;
+ 
+ 
+     /* ResourceSource, ResourceSourceIndex, ResourceType */
+ 
+     AcpiDmIndent (Level + 1);
+-    if (Resource->Gpio.ResSourceOffset)
++    ResSourceOffset = AcpiUtReadUint16 (&Resource->Gpio.ResSourceOffset);
++    if (ResSourceOffset)
+     {
+         DeviceName = ACPI_ADD_PTR (char,
+-            Resource, Resource->Gpio.ResSourceOffset),
++            Resource, ResSourceOffset),
+         AcpiUtPrintString (DeviceName, ACPI_UINT16_MAX);
+     }
+ 
+     AcpiOsPrintf (", ");
+     AcpiOsPrintf ("0x%2.2X, ", Resource->Gpio.ResSourceIndex);
+-    AcpiOsPrintf ("%s, ",
+-        AcpiGbl_ConsumeDecode [ACPI_GET_1BIT_FLAG (Resource->Gpio.Flags)]);
++    Tmp16 = AcpiUtReadUint16 (&Resource->Gpio.Flags);
++    AcpiOsPrintf ("%s, ", AcpiGbl_ConsumeDecode [ACPI_GET_1BIT_FLAG (Tmp16)]);
+ 
+     /* Insert a descriptor name */
+ 
+@@ -223,15 +228,15 @@ AcpiDmGpioCommon (
+ 
+     /* Dump the vendor data */
+ 
+-    if (Resource->Gpio.VendorOffset)
++    VendorOffset = AcpiUtReadUint16 (&Resource->Gpio.VendorOffset);
++    VendorLength = AcpiUtReadUint16 (&Resource->Gpio.VendorLength);
++    if (VendorOffset)
+     {
+         AcpiOsPrintf ("\n");
+         AcpiDmIndent (Level + 1);
+-        VendorData = ACPI_ADD_PTR (UINT8, Resource,
+-            Resource->Gpio.VendorOffset);
++        VendorData = ACPI_ADD_PTR (UINT8, Resource, VendorOffset);
+ 
+-        AcpiDmDumpRawDataBuffer (VendorData,
+-            Resource->Gpio.VendorLength, Level);
++        AcpiDmDumpRawDataBuffer (VendorData, VendorLength, Level);
+     }
+ 
+     AcpiOsPrintf (")\n");
+@@ -241,17 +246,17 @@ AcpiDmGpioCommon (
+     AcpiDmIndent (Level + 1);
+     AcpiOsPrintf ("{   // Pin list\n");
+ 
+-    PinCount = ((UINT32) (Resource->Gpio.ResSourceOffset -
+-        Resource->Gpio.PinTableOffset)) /
+-        sizeof (UINT16);
++    PinCount = (UINT32) AcpiUtReadUint16 (&Resource->Gpio.ResSourceOffset);
++    PinCount -= (UINT32) AcpiUtReadUint16 (&Resource->Gpio.PinTableOffset);
++    PinCount /= sizeof (UINT16);
+ 
+     PinList = (UINT16 *) ACPI_ADD_PTR (char, Resource,
+-        Resource->Gpio.PinTableOffset);
++        AcpiUtReadUint16 (&Resource->Gpio.PinTableOffset));
+ 
+     for (i = 0; i < PinCount; i++)
+     {
+         AcpiDmIndent (Level + 2);
+-        AcpiOsPrintf ("0x%4.4X%s\n", PinList[i],
++        AcpiOsPrintf ("0x%4.4X%s\n", AcpiUtReadUint16 (&(PinList[i])),
+             ((i + 1) < PinCount) ? "," : "");
+     }
+ 
+@@ -285,16 +290,18 @@ AcpiDmGpioIntDescriptor (
+     UINT32                  Length,
+     UINT32                  Level)
+ {
++    UINT16                  Tmp16;
+ 
+     /* Dump the GpioInt-specific portion of the descriptor */
+ 
+     /* EdgeLevel, ActiveLevel, Shared */
+ 
+     AcpiDmIndent (Level);
++    Tmp16 = AcpiUtReadUint16 (&Resource->Gpio.IntFlags);
+     AcpiOsPrintf ("GpioInt (%s, %s, %s, ",
+-        AcpiGbl_HeDecode [ACPI_GET_1BIT_FLAG (Resource->Gpio.IntFlags)],
+-        AcpiGbl_LlDecode [ACPI_EXTRACT_2BIT_FLAG (Resource->Gpio.IntFlags, 1)],
+-        AcpiGbl_ShrDecode [ACPI_EXTRACT_2BIT_FLAG (Resource->Gpio.IntFlags, 3)]);
++        AcpiGbl_HeDecode [ACPI_GET_1BIT_FLAG (Tmp16)],
++        AcpiGbl_LlDecode [ACPI_EXTRACT_2BIT_FLAG (Tmp16, 1)],
++        AcpiGbl_ShrDecode [ACPI_EXTRACT_2BIT_FLAG (Tmp16, 3)]);
+ 
+     /* PinConfig, DebounceTimeout */
+ 
+@@ -307,7 +314,8 @@ AcpiDmGpioIntDescriptor (
+     {
+         AcpiOsPrintf ("0x%2.2X, ", Resource->Gpio.PinConfig);
+     }
+-    AcpiOsPrintf ("0x%4.4X,\n", Resource->Gpio.DebounceTimeout);
++    AcpiOsPrintf ("0x%4.4X,\n",
++          AcpiUtReadUint16 (&Resource->Gpio.DebounceTimeout));
+ 
+     /* Dump the GpioInt/GpioIo common portion of the descriptor */
+ 
+@@ -337,14 +345,16 @@ AcpiDmGpioIoDescriptor (
+     UINT32                  Length,
+     UINT32                  Level)
+ {
++    UINT16                  Tmp16;
+ 
+     /* Dump the GpioIo-specific portion of the descriptor */
+ 
+     /* Shared, PinConfig */
+ 
+     AcpiDmIndent (Level);
++    Tmp16 = AcpiUtReadUint16 (&Resource->Gpio.IntFlags);
+     AcpiOsPrintf ("GpioIo (%s, ",
+-        AcpiGbl_ShrDecode [ACPI_EXTRACT_2BIT_FLAG (Resource->Gpio.IntFlags, 3)]);
++        AcpiGbl_ShrDecode [ACPI_EXTRACT_2BIT_FLAG (Tmp16, 3)]);
+ 
+     if (Resource->Gpio.PinConfig <= 3)
+     {
+@@ -358,10 +368,10 @@ AcpiDmGpioIoDescriptor (
+ 
+     /* DebounceTimeout, DriveStrength, IoRestriction */
+ 
+-    AcpiOsPrintf ("0x%4.4X, ", Resource->Gpio.DebounceTimeout);
+-    AcpiOsPrintf ("0x%4.4X, ", Resource->Gpio.DriveStrength);
+-    AcpiOsPrintf ("%s,\n",
+-        AcpiGbl_IorDecode [ACPI_GET_2BIT_FLAG (Resource->Gpio.IntFlags)]);
++    AcpiOsPrintf ("0x%4.4X, ", AcpiUtReadUint16 (&Resource->Gpio.DebounceTimeout));
++    AcpiOsPrintf ("0x%4.4X, ", AcpiUtReadUint16 (&Resource->Gpio.DriveStrength));
++    Tmp16 = AcpiUtReadUint16 (&Resource->Gpio.IntFlags);
++    AcpiOsPrintf ("%s,\n", AcpiGbl_IorDecode [ACPI_GET_2BIT_FLAG (Tmp16)]);
+ 
+     /* Dump the GpioInt/GpioIo common portion of the descriptor */
+ 
+@@ -442,6 +452,9 @@ AcpiDmPinFunctionDescriptor (
+     char                    *DeviceName = NULL;
+     UINT32                  PinCount;
+     UINT32                  i;
++    UINT16                  ResSourceOffset;
++    UINT16                  VendorOffset;
++    UINT16                  VendorLength;
+ 
+     AcpiDmIndent (Level);
+     AcpiOsPrintf ("PinFunction (%s, ",
+@@ -459,12 +472,14 @@ AcpiDmPinFunctionDescriptor (
+ 
+     /* FunctionNumber */
+ 
+-    AcpiOsPrintf ("0x%4.4X, ", Resource->PinFunction.FunctionNumber);
++    AcpiOsPrintf ("0x%4.4X, ",
++          AcpiUtReadUint16 (&Resource->PinFunction.FunctionNumber));
+ 
+-    if (Resource->PinFunction.ResSourceOffset)
++    ResSourceOffset = AcpiUtReadUint16 (&Resource->PinFunction.ResSourceOffset);
++    if (ResSourceOffset)
+     {
+         DeviceName = ACPI_ADD_PTR (char,
+-            Resource, Resource->PinFunction.ResSourceOffset),
++            Resource, ResSourceOffset),
+         AcpiUtPrintString (DeviceName, ACPI_UINT16_MAX);
+     }
+ 
+@@ -484,15 +499,15 @@ AcpiDmPinFunctionDescriptor (
+ 
+     /* Dump the vendor data */
+ 
+-    if (Resource->PinFunction.VendorLength)
++    VendorOffset = AcpiUtReadUint16 (&Resource->PinFunction.VendorOffset);
++    VendorLength = AcpiUtReadUint16 (&Resource->PinFunction.VendorLength);
++    if (VendorLength)
+     {
+         AcpiOsPrintf ("\n");
+         AcpiDmIndent (Level + 1);
+-        VendorData = ACPI_ADD_PTR (UINT8, Resource,
+-            Resource->PinFunction.VendorOffset);
++        VendorData = ACPI_ADD_PTR (UINT8, Resource, VendorOffset);
+ 
+-        AcpiDmDumpRawDataBuffer (VendorData,
+-            Resource->PinFunction.VendorLength, Level);
++        AcpiDmDumpRawDataBuffer (VendorData, VendorLength, Level);
+     }
+ 
+     AcpiOsPrintf (")\n");
+@@ -503,17 +518,17 @@ AcpiDmPinFunctionDescriptor (
+ 
+     AcpiOsPrintf ("{   // Pin list\n");
+ 
+-    PinCount = ((UINT32) (Resource->PinFunction.ResSourceOffset -
+-        Resource->PinFunction.PinTableOffset)) /
+-        sizeof (UINT16);
++    PinCount = AcpiUtReadUint16 (&Resource->PinFunction.ResSourceOffset);
++    PinCount -= AcpiUtReadUint16 (&Resource->PinFunction.PinTableOffset);
++    PinCount /= sizeof (UINT16);
+ 
+     PinList = (UINT16 *) ACPI_ADD_PTR (char, Resource,
+-        Resource->PinFunction.PinTableOffset);
++        AcpiUtReadUint16 (&Resource->PinFunction.PinTableOffset));
+ 
+     for (i = 0; i < PinCount; i++)
+     {
+         AcpiDmIndent (Level + 2);
+-        AcpiOsPrintf ("0x%4.4X%s\n", PinList[i],
++        AcpiOsPrintf ("0x%4.4X%s\n", AcpiUtReadUint16 (&(PinList[i])),
+             ((i + 1) < PinCount) ? "," : "");
+     }
+ 
+@@ -549,7 +564,8 @@ AcpiDmDumpSerialBusVendorData (
+     {
+     case AML_RESOURCE_I2C_SERIALBUSTYPE:
+ 
+-        VendorLength = Resource->CommonSerialBus.TypeDataLength -
++        VendorLength =
++            AcpiUtReadUint16 (&Resource->CommonSerialBus.TypeDataLength) -
+             AML_RESOURCE_I2C_MIN_DATA_LEN;
+ 
+         VendorData = ACPI_ADD_PTR (UINT8, Resource,
+@@ -558,7 +574,8 @@ AcpiDmDumpSerialBusVendorData (
+ 
+     case AML_RESOURCE_SPI_SERIALBUSTYPE:
+ 
+-        VendorLength = Resource->CommonSerialBus.TypeDataLength -
++        VendorLength =
++            AcpiUtReadUint16 (&Resource->CommonSerialBus.TypeDataLength) -
+             AML_RESOURCE_SPI_MIN_DATA_LEN;
+ 
+         VendorData = ACPI_ADD_PTR (UINT8, Resource,
+@@ -567,7 +584,8 @@ AcpiDmDumpSerialBusVendorData (
+ 
+     case AML_RESOURCE_UART_SERIALBUSTYPE:
+ 
+-        VendorLength = Resource->CommonSerialBus.TypeDataLength -
++        VendorLength =
++            AcpiUtReadUint16 (&Resource->CommonSerialBus.TypeDataLength) -
+             AML_RESOURCE_UART_MIN_DATA_LEN;
+ 
+         VendorData = ACPI_ADD_PTR (UINT8, Resource,
+@@ -693,9 +711,9 @@ AcpiDmI2cSerialBusDescriptor (
+ 
+     AcpiDmIndent (Level);
+     AcpiOsPrintf ("I2cSerialBusV2 (0x%4.4X, %s, 0x%8.8X,\n",
+-        Resource->I2cSerialBus.SlaveAddress,
++        AcpiUtReadUint16 (&Resource->I2cSerialBus.SlaveAddress),
+         AcpiGbl_SmDecode [ACPI_GET_1BIT_FLAG (Resource->I2cSerialBus.Flags)],
+-        Resource->I2cSerialBus.ConnectionSpeed);
++        AcpiUtReadUint32 (&Resource->I2cSerialBus.ConnectionSpeed));
+ 
+     AcpiDmIndent (Level + 1);
+     AcpiOsPrintf ("%s, ",
+@@ -704,7 +722,7 @@ AcpiDmI2cSerialBusDescriptor (
+     /* ResourceSource is a required field */
+ 
+     ResourceSourceOffset = sizeof (AML_RESOURCE_COMMON_SERIALBUS) +
+-        Resource->CommonSerialBus.TypeDataLength;
++        AcpiUtReadUint16 (&Resource->CommonSerialBus.TypeDataLength);
+ 
+     DeviceName = ACPI_ADD_PTR (char, Resource, ResourceSourceOffset);
+     AcpiUtPrintString (DeviceName, ACPI_UINT16_MAX);
+@@ -761,15 +779,17 @@ AcpiDmSpiSerialBusDescriptor (
+ {
+     UINT32                  ResourceSourceOffset;
+     char                    *DeviceName;
++    UINT16                  Tmp16;
+ 
+ 
+     /* DeviceSelection, DeviceSelectionPolarity, WireMode, DataBitLength */
+ 
+     AcpiDmIndent (Level);
++    Tmp16 = AcpiUtReadUint16 (&Resource->SpiSerialBus.TypeSpecificFlags);
+     AcpiOsPrintf ("SpiSerialBusV2 (0x%4.4X, %s, %s, 0x%2.2X,\n",
+-        Resource->SpiSerialBus.DeviceSelection,
+-        AcpiGbl_DpDecode [ACPI_EXTRACT_1BIT_FLAG (Resource->SpiSerialBus.TypeSpecificFlags, 1)],
+-        AcpiGbl_WmDecode [ACPI_GET_1BIT_FLAG (Resource->SpiSerialBus.TypeSpecificFlags)],
++        AcpiUtReadUint16 (&Resource->SpiSerialBus.DeviceSelection),
++        AcpiGbl_DpDecode [ACPI_EXTRACT_1BIT_FLAG (Tmp16, 1)],
++        AcpiGbl_WmDecode [ACPI_GET_1BIT_FLAG (Tmp16)],
+         Resource->SpiSerialBus.DataBitLength);
+ 
+     /* SlaveMode, ConnectionSpeed, ClockPolarity, ClockPhase */
+@@ -777,7 +797,7 @@ AcpiDmSpiSerialBusDescriptor (
+     AcpiDmIndent (Level + 1);
+     AcpiOsPrintf ("%s, 0x%8.8X, %s,\n",
+         AcpiGbl_SmDecode [ACPI_GET_1BIT_FLAG (Resource->SpiSerialBus.Flags)],
+-        Resource->SpiSerialBus.ConnectionSpeed,
++        AcpiUtReadUint32 (&Resource->SpiSerialBus.ConnectionSpeed),
+         AcpiGbl_CpoDecode [ACPI_GET_1BIT_FLAG (Resource->SpiSerialBus.ClockPolarity)]);
+ 
+     AcpiDmIndent (Level + 1);
+@@ -787,7 +807,7 @@ AcpiDmSpiSerialBusDescriptor (
+     /* ResourceSource is a required field */
+ 
+     ResourceSourceOffset = sizeof (AML_RESOURCE_COMMON_SERIALBUS) +
+-        Resource->CommonSerialBus.TypeDataLength;
++        AcpiUtReadUint16 (&Resource->CommonSerialBus.TypeDataLength);
+ 
+     DeviceName = ACPI_ADD_PTR (char, Resource, ResourceSourceOffset);
+     AcpiUtPrintString (DeviceName, ACPI_UINT16_MAX);
+@@ -844,15 +864,17 @@ AcpiDmUartSerialBusDescriptor (
+ {
+     UINT32                  ResourceSourceOffset;
+     char                    *DeviceName;
++    UINT16                  Tmp16;
+ 
+ 
+     /* ConnectionSpeed, BitsPerByte, StopBits */
+ 
+     AcpiDmIndent (Level);
++    Tmp16 = AcpiUtReadUint16 (&Resource->UartSerialBus.TypeSpecificFlags);
+     AcpiOsPrintf ("UartSerialBusV2 (0x%8.8X, %s, %s,\n",
+-        Resource->UartSerialBus.DefaultBaudRate,
+-        AcpiGbl_BpbDecode [ACPI_EXTRACT_3BIT_FLAG (Resource->UartSerialBus.TypeSpecificFlags, 4)],
+-        AcpiGbl_SbDecode [ACPI_EXTRACT_2BIT_FLAG (Resource->UartSerialBus.TypeSpecificFlags, 2)]);
++        AcpiUtReadUint32 (&Resource->UartSerialBus.DefaultBaudRate),
++        AcpiGbl_BpbDecode [ACPI_EXTRACT_3BIT_FLAG (Tmp16, 4)],
++        AcpiGbl_SbDecode [ACPI_EXTRACT_2BIT_FLAG (Tmp16, 2)]);
+ 
+     /* LinesInUse, IsBigEndian, Parity, FlowControl */
+ 
+@@ -867,13 +889,13 @@ AcpiDmUartSerialBusDescriptor (
+ 
+     AcpiDmIndent (Level + 1);
+     AcpiOsPrintf ("0x%4.4X, 0x%4.4X, ",
+-        Resource->UartSerialBus.RxFifoSize,
+-        Resource->UartSerialBus.TxFifoSize);
++        AcpiUtReadUint16 (&Resource->UartSerialBus.RxFifoSize),
++        AcpiUtReadUint16 (&Resource->UartSerialBus.TxFifoSize));
+ 
+     /* ResourceSource is a required field */
+ 
+     ResourceSourceOffset = sizeof (AML_RESOURCE_COMMON_SERIALBUS) +
+-        Resource->CommonSerialBus.TypeDataLength;
++        AcpiUtReadUint16 (&Resource->CommonSerialBus.TypeDataLength);
+ 
+     DeviceName = ACPI_ADD_PTR (char, Resource, ResourceSourceOffset);
+     AcpiUtPrintString (DeviceName, ACPI_UINT16_MAX);
+Index: acpica-unix2-20220331/source/components/disassembler/dmresrcs.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/components/disassembler/dmresrcs.c
++++ acpica-unix2-20220331/source/components/disassembler/dmresrcs.c
+@@ -93,7 +93,7 @@ AcpiDmIrqDescriptor (
+     AcpiOsPrintf (")\n");
+ 
+     AcpiDmIndent (Level + 1);
+-    AcpiDmBitList (Resource->Irq.IrqMask);
++    AcpiDmBitList (AcpiUtReadUint16 (&Resource->Irq.IrqMask));
+ }
+ 
+ 
+@@ -161,8 +161,8 @@ AcpiDmFixedDmaDescriptor (
+ 
+     AcpiDmIndent (Level);
+     AcpiOsPrintf ("FixedDMA (0x%4.4X, 0x%4.4X, ",
+-        Resource->FixedDma.RequestLines,
+-        Resource->FixedDma.Channels);
++        AcpiUtReadUint16 (&Resource->FixedDma.RequestLines),
++        AcpiUtReadUint16 (&Resource->FixedDma.Channels));
+ 
+     if (Resource->FixedDma.Width <= 5)
+     {
+@@ -210,10 +210,12 @@ AcpiDmIoDescriptor (
+         AcpiGbl_IoDecode [ACPI_GET_1BIT_FLAG (Resource->Io.Flags)]);
+ 
+     AcpiDmIndent (Level + 1);
+-    AcpiDmDumpInteger16 (Resource->Io.Minimum, "Range Minimum");
++    AcpiDmDumpInteger16 (AcpiUtReadUint16 (&Resource->Io.Minimum),
++                 "Range Minimum");
+ 
+     AcpiDmIndent (Level + 1);
+-    AcpiDmDumpInteger16 (Resource->Io.Maximum, "Range Maximum");
++    AcpiDmDumpInteger16 (AcpiUtReadUint16 (&Resource->Io.Maximum),
++                 "Range Maximum");
+ 
+     AcpiDmIndent (Level + 1);
+     AcpiDmDumpInteger8 (Resource->Io.Alignment, "Alignment");
+@@ -256,10 +258,12 @@ AcpiDmFixedIoDescriptor (
+     AcpiOsPrintf ("FixedIO (\n");
+ 
+     AcpiDmIndent (Level + 1);
+-    AcpiDmDumpInteger16 (Resource->FixedIo.Address, "Address");
++    AcpiDmDumpInteger16 (AcpiUtReadUint16 (&Resource->FixedIo.Address),
++                 "Address");
+ 
+     AcpiDmIndent (Level + 1);
+-    AcpiDmDumpInteger8 (Resource->FixedIo.AddressLength, "Length");
++    AcpiDmDumpInteger8 (AcpiUtReadUint16 (&Resource->FixedIo.AddressLength),
++            "Length");
+ 
+     /* Insert a descriptor name */
+ 
+Index: acpica-unix2-20220331/source/components/disassembler/dmwalk.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/components/disassembler/dmwalk.c
++++ acpica-unix2-20220331/source/components/disassembler/dmwalk.c
+@@ -1163,7 +1163,7 @@ AcpiDmAscendingOp (
+         {
+             ParentOp->Common.DisasmFlags |= ACPI_PARSEOP_EMPTY_TERMLIST;
+             ASL_CV_CLOSE_PAREN (Op, Level);
+-            AcpiOsPrintf ("{");
++            AcpiOsPrintf (" {");
+         }
+     }
+ 
+Index: acpica-unix2-20220331/source/components/namespace/nsaccess.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/components/namespace/nsaccess.c
++++ acpica-unix2-20220331/source/components/namespace/nsaccess.c
+@@ -644,7 +644,7 @@ AcpiNsLookup (
+ 
+         /* Extract one ACPI name from the front of the pathname */
+ 
+-        ACPI_MOVE_32_TO_32 (&SimpleName, Path);
++        ACPI_COPY_NAMESEG (&SimpleName, Path);
+ 
+         /* Try to find the single (4 character) ACPI name */
+ 
+Index: acpica-unix2-20220331/source/components/namespace/nsnames.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/components/namespace/nsnames.c
++++ acpica-unix2-20220331/source/components/namespace/nsnames.c
+@@ -297,10 +297,10 @@ AcpiNsBuildNormalizedPath (
+     {
+         if (NextNode != Node)
+         {
+-            ACPI_PATH_PUT8(FullPath, PathSize, AML_DUAL_NAME_PREFIX, Length);
++            ACPI_PATH_PUT8 (FullPath, PathSize, AML_DUAL_NAME_PREFIX, Length);
+         }
+ 
+-        ACPI_MOVE_32_TO_32 (Name, &NextNode->Name);
++        ACPI_COPY_NAMESEG (Name, &NextNode->Name);
+         DoNoTrailing = NoTrailing;
+         for (i = 0; i < 4; i++)
+         {
+Index: acpica-unix2-20220331/source/components/namespace/nsparse.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/components/namespace/nsparse.c
++++ acpica-unix2-20220331/source/components/namespace/nsparse.c
+@@ -203,6 +203,7 @@ AcpiNsOneCompleteParse (
+     ACPI_WALK_STATE         *WalkState;
+     ACPI_TABLE_HEADER       *Table;
+     ACPI_OWNER_ID           OwnerId;
++    UINT32                  TableLength;
+ 
+ 
+     ACPI_FUNCTION_TRACE (NsOneCompleteParse);
+@@ -216,13 +217,14 @@ AcpiNsOneCompleteParse (
+ 
+     /* Table must consist of at least a complete header */
+ 
+-    if (Table->Length < sizeof (ACPI_TABLE_HEADER))
++    TableLength = AcpiUtReadUint32 (&Table->Length);
++    if (TableLength < sizeof (ACPI_TABLE_HEADER))
+     {
+         return_ACPI_STATUS (AE_BAD_HEADER);
+     }
+ 
+     AmlStart = (UINT8 *) Table + sizeof (ACPI_TABLE_HEADER);
+-    AmlLength = Table->Length - sizeof (ACPI_TABLE_HEADER);
++    AmlLength = TableLength - sizeof (ACPI_TABLE_HEADER);
+ 
+     Status = AcpiTbGetOwnerId (TableIndex, &OwnerId);
+     if (ACPI_FAILURE (Status))
+Index: acpica-unix2-20220331/source/components/namespace/nsutils.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/components/namespace/nsutils.c
++++ acpica-unix2-20220331/source/components/namespace/nsutils.c
+@@ -272,7 +272,6 @@ AcpiNsBuildInternalName (
+     const char              *ExternalName = Info->NextExternalChar;
+     char                    *Result = NULL;
+     UINT32                  i;
+-    char                    TmpSeg[ACPI_NAMESEG_SIZE+1];
+ 
+ 
+     ACPI_FUNCTION_TRACE (NsBuildInternalName);
+@@ -336,7 +335,6 @@ AcpiNsBuildInternalName (
+ 
+     for (; NumSegments; NumSegments--)
+     {
+-        memset (TmpSeg, 0, ACPI_NAMESEG_SIZE+1);
+         for (i = 0; i < ACPI_NAMESEG_SIZE; i++)
+         {
+             if (ACPI_IS_PATH_SEPARATOR (*ExternalName) ||
+@@ -344,17 +342,16 @@ AcpiNsBuildInternalName (
+             {
+                 /* Pad the segment with underscore(s) if segment is short */
+ 
+-                TmpSeg[i] = '_';
++                Result[i] = '_';
+             }
+             else
+             {
+                 /* Convert the character to uppercase and save it */
+ 
+-                TmpSeg[i] = (char) toupper ((int) *ExternalName);
++                Result[i] = (char) toupper ((int) *ExternalName);
+                 ExternalName++;
+             }
+         }
+-    AcpiUtWriteUint (Result, ACPI_NAMESEG_SIZE, TmpSeg, ACPI_NAMESEG_SIZE);
+ 
+         /* Now we must have a path separator, or the pathname is bad */
+ 
+Index: acpica-unix2-20220331/source/components/utilities/utresrc.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/components/utilities/utresrc.c
++++ acpica-unix2-20220331/source/components/utilities/utresrc.c
+@@ -541,7 +541,7 @@ AcpiUtGetResourceLength (
+     {
+         /* Large Resource type -- bytes 1-2 contain the 16-bit length */
+ 
+-        ACPI_MOVE_16_TO_16 (&ResourceLength, ACPI_ADD_PTR (UINT8, Aml, 1));
++        ResourceLength = AcpiUtReadUint16 (ACPI_ADD_PTR (UINT8, Aml, 1));
+ 
+     }
+     else
+Index: acpica-unix2-20220331/source/compiler/aslrestype2e.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/compiler/aslrestype2e.c
++++ acpica-unix2-20220331/source/compiler/aslrestype2e.c
+@@ -80,6 +80,7 @@ RsDoExtendedIoDescriptor (
+     UINT16                  StringLength = 0;
+     UINT32                  CurrentByteOffset;
+     UINT32                  i;
++    UINT16                  Tmp16;
+ 
+ 
+     InitializerOp = Info->DescriptorTypeOp->Asl.Child;
+@@ -139,7 +140,8 @@ RsDoExtendedIoDescriptor (
+ 
+         case 5: /* Address Granularity */
+ 
+-            Descriptor->ExtAddress64.Granularity = InitializerOp->Asl.Value.Integer;
++            Descriptor->ExtAddress64.Granularity =
++                AcpiUtReadUint64 (&InitializerOp->Asl.Value.Integer);
+             RsCreateQwordField (InitializerOp, ACPI_RESTAG_GRANULARITY,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (ExtAddress64.Granularity));
+             GranOp = InitializerOp;
+@@ -147,7 +149,8 @@ RsDoExtendedIoDescriptor (
+ 
+         case 6: /* Address Min */
+ 
+-            Descriptor->ExtAddress64.Minimum = InitializerOp->Asl.Value.Integer;
++            Descriptor->ExtAddress64.Minimum =
++                AcpiUtReadUint64 (&InitializerOp->Asl.Value.Integer);
+             RsCreateQwordField (InitializerOp, ACPI_RESTAG_MINADDR,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (ExtAddress64.Minimum));
+             MinOp = InitializerOp;
+@@ -155,7 +158,8 @@ RsDoExtendedIoDescriptor (
+ 
+         case 7: /* Address Max */
+ 
+-            Descriptor->ExtAddress64.Maximum = InitializerOp->Asl.Value.Integer;
++            Descriptor->ExtAddress64.Maximum =
++                AcpiUtReadUint64 (&InitializerOp->Asl.Value.Integer);
+             RsCreateQwordField (InitializerOp, ACPI_RESTAG_MAXADDR,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (ExtAddress64.Maximum));
+             MaxOp = InitializerOp;
+@@ -163,14 +167,16 @@ RsDoExtendedIoDescriptor (
+ 
+         case 8: /* Translation Offset */
+ 
+-            Descriptor->ExtAddress64.TranslationOffset = InitializerOp->Asl.Value.Integer;
++            Descriptor->ExtAddress64.TranslationOffset =
++                AcpiUtReadUint64 (&InitializerOp->Asl.Value.Integer);
+             RsCreateQwordField (InitializerOp, ACPI_RESTAG_TRANSLATION,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (ExtAddress64.TranslationOffset));
+             break;
+ 
+         case 9: /* Address Length */
+ 
+-            Descriptor->ExtAddress64.AddressLength = InitializerOp->Asl.Value.Integer;
++            Descriptor->ExtAddress64.AddressLength =
++                AcpiUtReadUint64 (&InitializerOp->Asl.Value.Integer);
+             RsCreateQwordField (InitializerOp, ACPI_RESTAG_LENGTH,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (ExtAddress64.AddressLength));
+             LengthOp = InitializerOp;
+@@ -178,7 +184,8 @@ RsDoExtendedIoDescriptor (
+ 
+         case 10: /* Type-Specific Attributes */
+ 
+-            Descriptor->ExtAddress64.TypeSpecific = InitializerOp->Asl.Value.Integer;
++            Descriptor->ExtAddress64.TypeSpecific =
++                AcpiUtReadUint64 (&InitializerOp->Asl.Value.Integer);
+             RsCreateQwordField (InitializerOp, ACPI_RESTAG_TYPESPECIFICATTRIBUTES,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (ExtAddress64.TypeSpecific));
+             break;
+@@ -213,11 +220,14 @@ RsDoExtendedIoDescriptor (
+ 
+     /* Validate the Min/Max/Len/Gran values */
+ 
++    Tmp16 = Descriptor->ExtAddress64.ResourceLength;
++    Descriptor->ExtAddress64.ResourceLength = AcpiUtReadUint16 (&Tmp16);
++
+     RsLargeAddressCheck (
+-        Descriptor->ExtAddress64.Minimum,
+-        Descriptor->ExtAddress64.Maximum,
+-        Descriptor->ExtAddress64.AddressLength,
+-        Descriptor->ExtAddress64.Granularity,
++        AcpiUtReadUint64 (&Descriptor->ExtAddress64.Minimum),
++        AcpiUtReadUint64 (&Descriptor->ExtAddress64.Maximum),
++        AcpiUtReadUint64 (&Descriptor->ExtAddress64.AddressLength),
++        AcpiUtReadUint64 (&Descriptor->ExtAddress64.Granularity),
+         Descriptor->ExtAddress64.Flags,
+         MinOp, MaxOp, LengthOp, GranOp, Info->DescriptorTypeOp);
+ 
+@@ -253,6 +263,7 @@ RsDoExtendedMemoryDescriptor (
+     UINT16                  StringLength = 0;
+     UINT32                  CurrentByteOffset;
+     UINT32                  i;
++    UINT16                  Tmp16;
+ 
+ 
+     InitializerOp = Info->DescriptorTypeOp->Asl.Child;
+@@ -319,7 +330,8 @@ RsDoExtendedMemoryDescriptor (
+ 
+         case 6: /* Address Granularity */
+ 
+-            Descriptor->ExtAddress64.Granularity = InitializerOp->Asl.Value.Integer;
++            Descriptor->ExtAddress64.Granularity =
++                AcpiUtReadUint64 (&InitializerOp->Asl.Value.Integer);
+             RsCreateQwordField (InitializerOp, ACPI_RESTAG_GRANULARITY,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (ExtAddress64.Granularity));
+             GranOp = InitializerOp;
+@@ -327,7 +339,8 @@ RsDoExtendedMemoryDescriptor (
+ 
+         case 7: /* Min Address */
+ 
+-            Descriptor->ExtAddress64.Minimum = InitializerOp->Asl.Value.Integer;
++            Descriptor->ExtAddress64.Minimum =
++                AcpiUtReadUint64 (&InitializerOp->Asl.Value.Integer);
+             RsCreateQwordField (InitializerOp, ACPI_RESTAG_MINADDR,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (ExtAddress64.Minimum));
+             MinOp = InitializerOp;
+@@ -335,7 +348,8 @@ RsDoExtendedMemoryDescriptor (
+ 
+         case 8: /* Max Address */
+ 
+-            Descriptor->ExtAddress64.Maximum = InitializerOp->Asl.Value.Integer;
++            Descriptor->ExtAddress64.Maximum =
++                AcpiUtReadUint64 (&InitializerOp->Asl.Value.Integer);
+             RsCreateQwordField (InitializerOp, ACPI_RESTAG_MAXADDR,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (ExtAddress64.Maximum));
+             MaxOp = InitializerOp;
+@@ -343,14 +357,16 @@ RsDoExtendedMemoryDescriptor (
+ 
+         case 9: /* Translation Offset */
+ 
+-            Descriptor->ExtAddress64.TranslationOffset = InitializerOp->Asl.Value.Integer;
++            Descriptor->ExtAddress64.TranslationOffset =
++                AcpiUtReadUint64 (&InitializerOp->Asl.Value.Integer);
+             RsCreateQwordField (InitializerOp, ACPI_RESTAG_TRANSLATION,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (ExtAddress64.TranslationOffset));
+             break;
+ 
+         case 10: /* Address Length */
+ 
+-            Descriptor->ExtAddress64.AddressLength = InitializerOp->Asl.Value.Integer;
++            Descriptor->ExtAddress64.AddressLength =
++                AcpiUtReadUint64 (&InitializerOp->Asl.Value.Integer);
+             RsCreateQwordField (InitializerOp, ACPI_RESTAG_LENGTH,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (ExtAddress64.AddressLength));
+             LengthOp = InitializerOp;
+@@ -358,7 +374,8 @@ RsDoExtendedMemoryDescriptor (
+ 
+         case 11: /* Type-Specific Attributes */
+ 
+-            Descriptor->ExtAddress64.TypeSpecific = InitializerOp->Asl.Value.Integer;
++            Descriptor->ExtAddress64.TypeSpecific =
++                AcpiUtReadUint64 (&InitializerOp->Asl.Value.Integer);
+             RsCreateQwordField (InitializerOp, ACPI_RESTAG_TYPESPECIFICATTRIBUTES,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (ExtAddress64.TypeSpecific));
+             break;
+@@ -394,11 +411,14 @@ RsDoExtendedMemoryDescriptor (
+ 
+     /* Validate the Min/Max/Len/Gran values */
+ 
++    Tmp16 = Descriptor->ExtAddress64.ResourceLength;
++    Descriptor->ExtAddress64.ResourceLength = AcpiUtReadUint16 (&Tmp16);
++
+     RsLargeAddressCheck (
+-        Descriptor->ExtAddress64.Minimum,
+-        Descriptor->ExtAddress64.Maximum,
+-        Descriptor->ExtAddress64.AddressLength,
+-        Descriptor->ExtAddress64.Granularity,
++        AcpiUtReadUint64 (&Descriptor->ExtAddress64.Minimum),
++        AcpiUtReadUint64 (&Descriptor->ExtAddress64.Maximum),
++        AcpiUtReadUint64 (&Descriptor->ExtAddress64.AddressLength),
++        AcpiUtReadUint64 (&Descriptor->ExtAddress64.Granularity),
+         Descriptor->ExtAddress64.Flags,
+         MinOp, MaxOp, LengthOp, GranOp, Info->DescriptorTypeOp);
+ 
+@@ -434,6 +454,7 @@ RsDoExtendedSpaceDescriptor (
+     UINT16                  StringLength = 0;
+     UINT32                  CurrentByteOffset;
+     UINT32                  i;
++    UINT16                  Tmp16;
+ 
+ 
+     InitializerOp = Info->DescriptorTypeOp->Asl.Child;
+@@ -497,7 +518,8 @@ RsDoExtendedSpaceDescriptor (
+ 
+         case 6: /* Address Granularity */
+ 
+-            Descriptor->ExtAddress64.Granularity = InitializerOp->Asl.Value.Integer;
++            Descriptor->ExtAddress64.Granularity =
++                AcpiUtReadUint64 (&InitializerOp->Asl.Value.Integer);
+             RsCreateQwordField (InitializerOp, ACPI_RESTAG_GRANULARITY,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (ExtAddress64.Granularity));
+             GranOp = InitializerOp;
+@@ -505,7 +527,8 @@ RsDoExtendedSpaceDescriptor (
+ 
+         case 7: /* Min Address */
+ 
+-            Descriptor->ExtAddress64.Minimum = InitializerOp->Asl.Value.Integer;
++            Descriptor->ExtAddress64.Minimum =
++                AcpiUtReadUint64 (&InitializerOp->Asl.Value.Integer);
+             RsCreateQwordField (InitializerOp, ACPI_RESTAG_MINADDR,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (ExtAddress64.Minimum));
+             MinOp = InitializerOp;
+@@ -513,7 +536,8 @@ RsDoExtendedSpaceDescriptor (
+ 
+         case 8: /* Max Address */
+ 
+-            Descriptor->ExtAddress64.Maximum = InitializerOp->Asl.Value.Integer;
++            Descriptor->ExtAddress64.Maximum =
++                AcpiUtReadUint64 (&InitializerOp->Asl.Value.Integer);
+             RsCreateQwordField (InitializerOp, ACPI_RESTAG_MAXADDR,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (ExtAddress64.Maximum));
+             MaxOp = InitializerOp;
+@@ -521,14 +545,16 @@ RsDoExtendedSpaceDescriptor (
+ 
+         case 9: /* Translation Offset */
+ 
+-            Descriptor->ExtAddress64.TranslationOffset = InitializerOp->Asl.Value.Integer;
++            Descriptor->ExtAddress64.TranslationOffset =
++                AcpiUtReadUint64 (&InitializerOp->Asl.Value.Integer);
+             RsCreateQwordField (InitializerOp, ACPI_RESTAG_TRANSLATION,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (ExtAddress64.TranslationOffset));
+             break;
+ 
+         case 10: /* Address Length */
+ 
+-            Descriptor->ExtAddress64.AddressLength = InitializerOp->Asl.Value.Integer;
++            Descriptor->ExtAddress64.AddressLength =
++                AcpiUtReadUint64 (&InitializerOp->Asl.Value.Integer);
+             RsCreateQwordField (InitializerOp, ACPI_RESTAG_LENGTH,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (ExtAddress64.AddressLength));
+             LengthOp = InitializerOp;
+@@ -536,7 +562,8 @@ RsDoExtendedSpaceDescriptor (
+ 
+         case 11: /* Type-Specific Attributes */
+ 
+-            Descriptor->ExtAddress64.TypeSpecific = InitializerOp->Asl.Value.Integer;
++            Descriptor->ExtAddress64.TypeSpecific =
++                AcpiUtReadUint64 (&InitializerOp->Asl.Value.Integer);
+             RsCreateQwordField (InitializerOp, ACPI_RESTAG_TYPESPECIFICATTRIBUTES,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (ExtAddress64.TypeSpecific));
+             break;
+@@ -557,11 +584,14 @@ RsDoExtendedSpaceDescriptor (
+ 
+     /* Validate the Min/Max/Len/Gran values */
+ 
++    Tmp16 = Descriptor->ExtAddress64.ResourceLength;
++    Descriptor->ExtAddress64.ResourceLength = AcpiUtReadUint16 (&Tmp16);
++
+     RsLargeAddressCheck (
+-        Descriptor->ExtAddress64.Minimum,
+-        Descriptor->ExtAddress64.Maximum,
+-        Descriptor->ExtAddress64.AddressLength,
+-        Descriptor->ExtAddress64.Granularity,
++        AcpiUtReadUint64 (&Descriptor->ExtAddress64.Minimum),
++        AcpiUtReadUint64 (&Descriptor->ExtAddress64.Maximum),
++        AcpiUtReadUint64 (&Descriptor->ExtAddress64.AddressLength),
++        AcpiUtReadUint64 (&Descriptor->ExtAddress64.Granularity),
+         Descriptor->ExtAddress64.Flags,
+         MinOp, MaxOp, LengthOp, GranOp, Info->DescriptorTypeOp);
+ 
+Index: acpica-unix2-20220331/source/compiler/aslrestype2s.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/compiler/aslrestype2s.c
++++ acpica-unix2-20220331/source/compiler/aslrestype2s.c
+@@ -343,6 +343,7 @@ RsDoGpioIntDescriptor (
+     UINT32                  CurrentByteOffset;
+     UINT32                  PinCount = 0;
+     UINT32                  i;
++    UINT16                  Tmp16;
+ 
+ 
+     InitializerOp = Info->DescriptorTypeOp->Asl.Child;
+@@ -485,7 +486,8 @@ RsDoGpioIntDescriptor (
+              *  (implies resource source must immediately follow the pin list.)
+              *  Name: _PIN
+              */
+-            *InterruptList = (UINT16) InitializerOp->Asl.Value.Integer;
++            Tmp16 = (UINT16) InitializerOp->Asl.Value.Integer;
++            *InterruptList = AcpiUtReadUint16 (&Tmp16);
+             InterruptList++;
+             PinCount++;
+ 
+@@ -518,6 +520,27 @@ RsDoGpioIntDescriptor (
+ 
+     MpSaveGpioInfo (Info->MappingOp, Descriptor,
+         PinCount, PinList, ResourceSource);
++
++    /* correct endian-ness issues */
++    Tmp16 = Descriptor->Gpio.ResourceLength;
++    Descriptor->Gpio.ResourceLength = AcpiUtReadUint16 (&Tmp16);
++    Tmp16 = Descriptor->Gpio.Flags;
++    Descriptor->Gpio.Flags = AcpiUtReadUint16 (&Tmp16);
++    Tmp16 = Descriptor->Gpio.IntFlags;
++    Descriptor->Gpio.IntFlags = AcpiUtReadUint16 (&Tmp16);
++    Tmp16 = Descriptor->Gpio.DriveStrength;
++    Descriptor->Gpio.DriveStrength = AcpiUtReadUint16 (&Tmp16);
++    Tmp16 = Descriptor->Gpio.DebounceTimeout;
++    Descriptor->Gpio.DebounceTimeout = AcpiUtReadUint16 (&Tmp16);
++    Tmp16 = Descriptor->Gpio.PinTableOffset;
++    Descriptor->Gpio.PinTableOffset = AcpiUtReadUint16 (&Tmp16);
++    Tmp16 = Descriptor->Gpio.ResSourceOffset;
++    Descriptor->Gpio.ResSourceOffset = AcpiUtReadUint16 (&Tmp16);
++    Tmp16 = Descriptor->Gpio.VendorOffset;
++    Descriptor->Gpio.VendorOffset = AcpiUtReadUint16 (&Tmp16);
++    Tmp16 = Descriptor->Gpio.VendorLength;
++    Descriptor->Gpio.VendorLength = AcpiUtReadUint16 (&Tmp16);
++
+     return (Rnode);
+ }
+ 
+@@ -552,6 +575,7 @@ RsDoGpioIoDescriptor (
+     UINT32                  CurrentByteOffset;
+     UINT32                  PinCount = 0;
+     UINT32                  i;
++    UINT16                  Tmp16;
+ 
+ 
+     InitializerOp = Info->DescriptorTypeOp->Asl.Child;
+@@ -691,7 +715,8 @@ RsDoGpioIoDescriptor (
+              *  (implies resource source must immediately follow the pin list.)
+              *  Name: _PIN
+              */
+-            *InterruptList = (UINT16) InitializerOp->Asl.Value.Integer;
++            Tmp16 = (UINT16) InitializerOp->Asl.Value.Integer;
++            *InterruptList = AcpiUtReadUint16 (&Tmp16);
+             InterruptList++;
+             PinCount++;
+ 
+@@ -724,6 +749,27 @@ RsDoGpioIoDescriptor (
+ 
+     MpSaveGpioInfo (Info->MappingOp, Descriptor,
+         PinCount, PinList, ResourceSource);
++
++    /* correct endian-ness issues */
++    Tmp16 = Descriptor->Gpio.ResourceLength;
++    Descriptor->Gpio.ResourceLength = AcpiUtReadUint16 (&Tmp16);
++    Tmp16 = Descriptor->Gpio.Flags;
++    Descriptor->Gpio.Flags = AcpiUtReadUint16 (&Tmp16);
++    Tmp16 = Descriptor->Gpio.IntFlags;
++    Descriptor->Gpio.IntFlags = AcpiUtReadUint16 (&Tmp16);
++    Tmp16 = Descriptor->Gpio.DriveStrength;
++    Descriptor->Gpio.DriveStrength = AcpiUtReadUint16 (&Tmp16);
++    Tmp16 = Descriptor->Gpio.DebounceTimeout;
++    Descriptor->Gpio.DebounceTimeout = AcpiUtReadUint16 (&Tmp16);
++    Tmp16 = Descriptor->Gpio.PinTableOffset;
++    Descriptor->Gpio.PinTableOffset = AcpiUtReadUint16 (&Tmp16);
++    Tmp16 = Descriptor->Gpio.ResSourceOffset;
++    Descriptor->Gpio.ResSourceOffset = AcpiUtReadUint16 (&Tmp16);
++    Tmp16 = Descriptor->Gpio.VendorOffset;
++    Descriptor->Gpio.VendorOffset = AcpiUtReadUint16 (&Tmp16);
++    Tmp16 = Descriptor->Gpio.VendorLength;
++    Descriptor->Gpio.VendorLength = AcpiUtReadUint16 (&Tmp16);
++
+     return (Rnode);
+ }
+ 
+@@ -754,6 +800,8 @@ RsDoI2cSerialBusDescriptor (
+     UINT16                  DescriptorSize;
+     UINT32                  CurrentByteOffset;
+     UINT32                  i;
++    UINT16                  Tmp16;
++    UINT32                  Tmp32;
+ 
+ 
+     InitializerOp = Info->DescriptorTypeOp->Asl.Child;
+@@ -781,7 +829,8 @@ RsDoI2cSerialBusDescriptor (
+     Descriptor->I2cSerialBus.RevisionId = AML_RESOURCE_I2C_REVISION;
+     Descriptor->I2cSerialBus.TypeRevisionId = AML_RESOURCE_I2C_TYPE_REVISION;
+     Descriptor->I2cSerialBus.Type = AML_RESOURCE_I2C_SERIALBUSTYPE;
+-    Descriptor->I2cSerialBus.TypeDataLength = AML_RESOURCE_I2C_MIN_DATA_LEN + VendorLength;
++    Tmp16 = AML_RESOURCE_I2C_MIN_DATA_LEN + VendorLength;
++    Descriptor->I2cSerialBus.TypeDataLength = AcpiUtReadUint16 (&Tmp16);
+ 
+     if (Info->DescriptorTypeOp->Asl.ParseOpcode == PARSEOP_I2C_SERIALBUS_V2)
+     {
+@@ -795,13 +844,15 @@ RsDoI2cSerialBusDescriptor (
+ 
+     /* Process all child initialization nodes */
+ 
++    Descriptor->I2cSerialBus.TypeSpecificFlags = 0;
+     for (i = 0; InitializerOp; i++)
+     {
+         switch (i)
+         {
+         case 0: /* Slave Address [WORD] (_ADR) */
+ 
+-            Descriptor->I2cSerialBus.SlaveAddress = (UINT16) InitializerOp->Asl.Value.Integer;
++            Tmp16 = (UINT16) InitializerOp->Asl.Value.Integer;
++            Descriptor->I2cSerialBus.SlaveAddress = AcpiUtReadUint16 (&Tmp16);
+             RsCreateWordField (InitializerOp, ACPI_RESTAG_ADDRESS,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (I2cSerialBus.SlaveAddress));
+             break;
+@@ -815,16 +866,19 @@ RsDoI2cSerialBusDescriptor (
+ 
+         case 2: /* Connection Speed [DWORD] (_SPE) */
+ 
+-            Descriptor->I2cSerialBus.ConnectionSpeed = (UINT32) InitializerOp->Asl.Value.Integer;
++            Tmp32 = (UINT32) InitializerOp->Asl.Value.Integer;
++            Descriptor->I2cSerialBus.ConnectionSpeed = AcpiUtReadUint32 (&Tmp32);
+             RsCreateDwordField (InitializerOp, ACPI_RESTAG_SPEED,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (I2cSerialBus.ConnectionSpeed));
+             break;
+ 
+         case 3: /* Addressing Mode [Flag] (_MOD) */
+ 
+-            RsSetFlagBits16 (&Descriptor->I2cSerialBus.TypeSpecificFlags, InitializerOp, 0, 0);
++            Tmp16 = AcpiUtReadUint16 (&Descriptor->I2cSerialBus.TypeSpecificFlags);
++            RsSetFlagBits16 (&Tmp16, InitializerOp, 0, 0);
+             RsCreateBitField (InitializerOp, ACPI_RESTAG_MODE,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (I2cSerialBus.TypeSpecificFlags), 0);
++            Descriptor->I2cSerialBus.TypeSpecificFlags = AcpiUtReadUint16 (&Tmp16);
+             break;
+ 
+         case 4: /* ResSource [Optional Field - STRING] */
+@@ -882,6 +936,8 @@ RsDoI2cSerialBusDescriptor (
+         InitializerOp = RsCompleteNodeAndGetNext (InitializerOp);
+     }
+ 
++    Tmp16 = Descriptor->I2cSerialBus.ResourceLength;
++    Descriptor->I2cSerialBus.ResourceLength = AcpiUtReadUint16 (&Tmp16);
+     MpSaveSerialInfo (Info->MappingOp, Descriptor, ResourceSource);
+     return (Rnode);
+ }
+@@ -913,6 +969,8 @@ RsDoSpiSerialBusDescriptor (
+     UINT16                  DescriptorSize;
+     UINT32                  CurrentByteOffset;
+     UINT32                  i;
++    UINT16                  Tmp16;
++    UINT32                  Tmp32;
+ 
+ 
+     InitializerOp = Info->DescriptorTypeOp->Asl.Child;
+@@ -935,12 +993,13 @@ RsDoSpiSerialBusDescriptor (
+         sizeof (AML_RESOURCE_LARGE_HEADER));
+ 
+     Descriptor = Rnode->Buffer;
+-    Descriptor->SpiSerialBus.ResourceLength = DescriptorSize;
++    Descriptor->SpiSerialBus.ResourceLength = AcpiUtReadUint16 (&DescriptorSize);
+     Descriptor->SpiSerialBus.DescriptorType = ACPI_RESOURCE_NAME_SERIAL_BUS;
+     Descriptor->SpiSerialBus.RevisionId = AML_RESOURCE_SPI_REVISION;
+     Descriptor->SpiSerialBus.TypeRevisionId = AML_RESOURCE_SPI_TYPE_REVISION;
+     Descriptor->SpiSerialBus.Type = AML_RESOURCE_SPI_SERIALBUSTYPE;
+-    Descriptor->SpiSerialBus.TypeDataLength = AML_RESOURCE_SPI_MIN_DATA_LEN + VendorLength;
++    Tmp16 = AML_RESOURCE_SPI_MIN_DATA_LEN + VendorLength;
++    Descriptor->SpiSerialBus.TypeDataLength = AcpiUtReadUint16 (&Tmp16);
+ 
+     if (Info->DescriptorTypeOp->Asl.ParseOpcode == PARSEOP_SPI_SERIALBUS_V2)
+     {
+@@ -955,29 +1014,35 @@ RsDoSpiSerialBusDescriptor (
+ 
+     /* Process all child initialization nodes */
+ 
++    Descriptor->SpiSerialBus.TypeSpecificFlags = 0;
+     for (i = 0; InitializerOp; i++)
+     {
+         switch (i)
+         {
+         case 0: /* Device Selection [WORD] (_ADR) */
+ 
+-            Descriptor->SpiSerialBus.DeviceSelection = (UINT16) InitializerOp->Asl.Value.Integer;
++            Tmp16 = (UINT16) InitializerOp->Asl.Value.Integer;
++            Descriptor->SpiSerialBus.DeviceSelection = AcpiUtReadUint16 (&Tmp16);
+             RsCreateWordField (InitializerOp, ACPI_RESTAG_ADDRESS,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (SpiSerialBus.DeviceSelection));
+             break;
+ 
+         case 1: /* Device Polarity [Flag] (_DPL) */
+ 
+-            RsSetFlagBits16 (&Descriptor->SpiSerialBus.TypeSpecificFlags, InitializerOp, 1, 0);
++            Tmp16 = AcpiUtReadUint16 (&Descriptor->SpiSerialBus.TypeSpecificFlags);
++            RsSetFlagBits16 (&Tmp16, InitializerOp, 1, 0);
+             RsCreateBitField (InitializerOp, ACPI_RESTAG_DEVICEPOLARITY,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (SpiSerialBus.TypeSpecificFlags), 1);
++            Descriptor->SpiSerialBus.TypeSpecificFlags = AcpiUtReadUint16 (&Tmp16);
+             break;
+ 
+         case 2: /* Wire Mode [Flag] (_MOD) */
+ 
+-            RsSetFlagBits16 (&Descriptor->SpiSerialBus.TypeSpecificFlags, InitializerOp, 0, 0);
++            Tmp16 = AcpiUtReadUint16 (&Descriptor->SpiSerialBus.TypeSpecificFlags);
++            RsSetFlagBits16 (&Tmp16, InitializerOp, 0, 0);
+             RsCreateBitField (InitializerOp, ACPI_RESTAG_MODE,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (SpiSerialBus.TypeSpecificFlags), 0);
++            Descriptor->SpiSerialBus.TypeSpecificFlags = AcpiUtReadUint16 (&Tmp16);
+             break;
+ 
+         case 3: /* Device Bit Length [BYTE] (_LEN) */
+@@ -996,7 +1061,8 @@ RsDoSpiSerialBusDescriptor (
+ 
+         case 5: /* Connection Speed [DWORD] (_SPE) */
+ 
+-            Descriptor->SpiSerialBus.ConnectionSpeed = (UINT32) InitializerOp->Asl.Value.Integer;
++            Tmp32 = (UINT32) InitializerOp->Asl.Value.Integer;
++            Descriptor->SpiSerialBus.ConnectionSpeed = AcpiUtReadUint32 (&Tmp32);
+             RsCreateDwordField (InitializerOp, ACPI_RESTAG_SPEED,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (SpiSerialBus.ConnectionSpeed));
+             break;
+@@ -1101,6 +1167,8 @@ RsDoUartSerialBusDescriptor (
+     UINT16                  DescriptorSize;
+     UINT32                  CurrentByteOffset;
+     UINT32                  i;
++    UINT16                  Tmp16;
++    UINT32                  Tmp32;
+ 
+ 
+     InitializerOp = Info->DescriptorTypeOp->Asl.Child;
+@@ -1123,12 +1191,13 @@ RsDoUartSerialBusDescriptor (
+         sizeof (AML_RESOURCE_LARGE_HEADER));
+ 
+     Descriptor = Rnode->Buffer;
+-    Descriptor->UartSerialBus.ResourceLength = DescriptorSize;
++    Descriptor->UartSerialBus.ResourceLength = AcpiUtReadUint16 (&DescriptorSize);
+     Descriptor->UartSerialBus.DescriptorType = ACPI_RESOURCE_NAME_SERIAL_BUS;
+     Descriptor->UartSerialBus.RevisionId = AML_RESOURCE_UART_REVISION;
+     Descriptor->UartSerialBus.TypeRevisionId = AML_RESOURCE_UART_TYPE_REVISION;
+     Descriptor->UartSerialBus.Type = AML_RESOURCE_UART_SERIALBUSTYPE;
+-    Descriptor->UartSerialBus.TypeDataLength = AML_RESOURCE_UART_MIN_DATA_LEN + VendorLength;
++    Tmp16 = AML_RESOURCE_UART_MIN_DATA_LEN + VendorLength;
++    Descriptor->UartSerialBus.TypeDataLength = AcpiUtReadUint16 (&Tmp16);
+ 
+     if (Info->DescriptorTypeOp->Asl.ParseOpcode == PARSEOP_UART_SERIALBUS_V2)
+     {
+@@ -1142,29 +1211,35 @@ RsDoUartSerialBusDescriptor (
+ 
+     /* Process all child initialization nodes */
+ 
++    Descriptor->UartSerialBus.TypeSpecificFlags = 0;
+     for (i = 0; InitializerOp; i++)
+     {
+         switch (i)
+         {
+         case 0: /* Connection Speed (Baud Rate) [DWORD] (_SPE) */
+ 
+-            Descriptor->UartSerialBus.DefaultBaudRate = (UINT32) InitializerOp->Asl.Value.Integer;
++            Tmp32 = (UINT32) InitializerOp->Asl.Value.Integer;
++            Descriptor->UartSerialBus.DefaultBaudRate = AcpiUtReadUint32 (&Tmp32);
+             RsCreateDwordField (InitializerOp, ACPI_RESTAG_SPEED,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (UartSerialBus.DefaultBaudRate));
+             break;
+ 
+         case 1: /* Bits Per Byte [Flags] (_LEN) */
+ 
+-            RsSetFlagBits16 (&Descriptor->UartSerialBus.TypeSpecificFlags, InitializerOp, 4, 3);
++            Tmp16 = AcpiUtReadUint16 (&Descriptor->UartSerialBus.TypeSpecificFlags);
++            RsSetFlagBits16 (&Tmp16, InitializerOp, 4, 3);
+             RsCreateMultiBitField (InitializerOp, ACPI_RESTAG_LENGTH,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (UartSerialBus.TypeSpecificFlags), 4, 3);
++            Descriptor->UartSerialBus.TypeSpecificFlags = AcpiUtReadUint16 (&Tmp16);;
+             break;
+ 
+         case 2: /* Stop Bits [Flags] (_STB) */
+ 
+-            RsSetFlagBits16 (&Descriptor->UartSerialBus.TypeSpecificFlags, InitializerOp, 2, 1);
++            Tmp16 = AcpiUtReadUint16 (&Descriptor->UartSerialBus.TypeSpecificFlags);
++            RsSetFlagBits16 (&Tmp16, InitializerOp, 2, 1);
+             RsCreateMultiBitField (InitializerOp, ACPI_RESTAG_STOPBITS,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (UartSerialBus.TypeSpecificFlags), 2, 2);
++            Descriptor->UartSerialBus.TypeSpecificFlags = AcpiUtReadUint16 (&Tmp16);;
+             break;
+ 
+         case 3: /* Lines In Use [BYTE] (_LIN) */
+@@ -1176,9 +1251,11 @@ RsDoUartSerialBusDescriptor (
+ 
+         case 4: /* Endianness [Flag] (_END) */
+ 
+-            RsSetFlagBits16 (&Descriptor->UartSerialBus.TypeSpecificFlags, InitializerOp, 7, 0);
++            Tmp16 = AcpiUtReadUint16 (&Descriptor->UartSerialBus.TypeSpecificFlags);
++            RsSetFlagBits16 (&Tmp16, InitializerOp, 7, 0);
+             RsCreateBitField (InitializerOp, ACPI_RESTAG_ENDIANNESS,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (UartSerialBus.TypeSpecificFlags), 7);
++            Descriptor->UartSerialBus.TypeSpecificFlags = AcpiUtReadUint16 (&Tmp16);;
+             break;
+ 
+         case 5: /* Parity [BYTE] (_PAR) */
+@@ -1190,21 +1267,25 @@ RsDoUartSerialBusDescriptor (
+ 
+         case 6: /* Flow Control [Flags] (_FLC) */
+ 
+-            RsSetFlagBits16 (&Descriptor->UartSerialBus.TypeSpecificFlags, InitializerOp, 0, 0);
++            Tmp16 = AcpiUtReadUint16 (&Descriptor->UartSerialBus.TypeSpecificFlags);
++            RsSetFlagBits16 (&Tmp16, InitializerOp, 0, 0);
+             RsCreateMultiBitField (InitializerOp, ACPI_RESTAG_FLOWCONTROL,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (UartSerialBus.TypeSpecificFlags), 0, 2);
++            Descriptor->UartSerialBus.TypeSpecificFlags = AcpiUtReadUint16 (&Tmp16);;
+             break;
+ 
+         case 7: /* Rx Buffer Size [WORD] (_RXL) */
+ 
+-            Descriptor->UartSerialBus.RxFifoSize = (UINT16) InitializerOp->Asl.Value.Integer;
++            Tmp16 = (UINT16) InitializerOp->Asl.Value.Integer;
++            Descriptor->UartSerialBus.RxFifoSize = AcpiUtReadUint16 (&Tmp16);
+             RsCreateWordField (InitializerOp, ACPI_RESTAG_LENGTH_RX,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (UartSerialBus.RxFifoSize));
+             break;
+ 
+         case 8: /* Tx Buffer Size [WORD] (_TXL) */
+ 
+-            Descriptor->UartSerialBus.TxFifoSize = (UINT16) InitializerOp->Asl.Value.Integer;
++            Tmp16 = (UINT16) InitializerOp->Asl.Value.Integer;
++            Descriptor->UartSerialBus.TxFifoSize = AcpiUtReadUint16 (&Tmp16);
+             RsCreateWordField (InitializerOp, ACPI_RESTAG_LENGTH_TX,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (UartSerialBus.TxFifoSize));
+             break;
+@@ -1444,6 +1525,7 @@ RsDoPinFunctionDescriptor (
+     UINT32                  CurrentByteOffset;
+     UINT32                  PinCount = 0;
+     UINT32                  i;
++    UINT16                  Tmp16;
+ 
+     InitializerOp = Info->DescriptorTypeOp->Asl.Child;
+     CurrentByteOffset = Info->CurrentByteOffset;
+@@ -1467,7 +1549,7 @@ RsDoPinFunctionDescriptor (
+         sizeof (AML_RESOURCE_LARGE_HEADER));
+ 
+     Descriptor = Rnode->Buffer;
+-    Descriptor->PinFunction.ResourceLength = DescriptorSize;
++    Descriptor->PinFunction.ResourceLength = AcpiUtReadUint16 (&DescriptorSize);
+     Descriptor->PinFunction.DescriptorType = ACPI_RESOURCE_NAME_PIN_FUNCTION;
+     Descriptor->PinFunction.RevisionId = AML_RESOURCE_PIN_FUNCTION_REVISION;
+ 
+@@ -1507,7 +1589,8 @@ RsDoPinFunctionDescriptor (
+ 
+         case 2: /* Function Number [WORD] (_FUN) */
+ 
+-            Descriptor->PinFunction.FunctionNumber = (UINT16) InitializerOp->Asl.Value.Integer;
++            Tmp16 = (UINT16) InitializerOp->Asl.Value.Integer;
++            Descriptor->PinFunction.FunctionNumber = AcpiUtReadUint16 (&Tmp16);
+             RsCreateDwordField (InitializerOp, ACPI_RESTAG_FUNCTION,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (PinFunction.FunctionNumber));
+             break;
+@@ -1555,6 +1638,12 @@ RsDoPinFunctionDescriptor (
+             {
+                 Descriptor->PinFunction.VendorLength = VendorLength;
+             }
++            Tmp16 = (UINT16) ACPI_PTR_DIFF (VendorData, Descriptor);
++            Descriptor->PinFunction.VendorOffset = AcpiUtReadUint16 (&Tmp16);
++
++            Tmp16 = Descriptor->PinFunction.VendorLength;
++            Descriptor->PinFunction.VendorLength = AcpiUtReadUint16 (&Tmp16);
++
+             break;
+ 
+         default:
+@@ -1566,7 +1655,8 @@ RsDoPinFunctionDescriptor (
+              *  (implies resource source must immediately follow the pin list.)
+              *  Name: _PIN
+              */
+-            *PinList = (UINT16) InitializerOp->Asl.Value.Integer;
++            Tmp16 = (UINT16) InitializerOp->Asl.Value.Integer;
++            *PinList = AcpiUtReadUint16 (&Tmp16);
+             PinList++;
+             PinCount++;
+ 
+@@ -1597,6 +1687,13 @@ RsDoPinFunctionDescriptor (
+         InitializerOp = RsCompleteNodeAndGetNext (InitializerOp);
+     }
+ 
++    /* correct the endian-ness of the values */
++    Tmp16 = Descriptor->PinFunction.PinTableOffset;
++    Descriptor->PinFunction.PinTableOffset = AcpiUtReadUint16 (&Tmp16);
++
++    Tmp16 = Descriptor->PinFunction.ResSourceOffset;
++    Descriptor->PinFunction.ResSourceOffset = AcpiUtReadUint16 (&Tmp16);
++
+     return (Rnode);
+ }
+ 
+@@ -1630,6 +1727,8 @@ RsDoPinConfigDescriptor (
+     UINT32                  CurrentByteOffset;
+     UINT32                  PinCount = 0;
+     UINT32                  i;
++    UINT16                  Tmp16;
++    UINT32                  Tmp32;
+ 
+     InitializerOp = Info->DescriptorTypeOp->Asl.Child;
+     CurrentByteOffset = Info->CurrentByteOffset;
+@@ -1653,7 +1752,7 @@ RsDoPinConfigDescriptor (
+         sizeof (AML_RESOURCE_LARGE_HEADER));
+ 
+     Descriptor = Rnode->Buffer;
+-    Descriptor->PinConfig.ResourceLength = DescriptorSize;
++    Descriptor->PinConfig.ResourceLength = AcpiUtReadUint16 (&DescriptorSize);
+     Descriptor->PinConfig.DescriptorType = ACPI_RESOURCE_NAME_PIN_CONFIG;
+     Descriptor->PinConfig.RevisionId = AML_RESOURCE_PIN_CONFIG_REVISION;
+ 
+@@ -1707,7 +1806,8 @@ RsDoPinConfigDescriptor (
+ 
+         case 2: /* Pin Config Value [DWORD] (_VAL) */
+ 
+-            Descriptor->PinConfig.PinConfigValue = (UINT32) InitializerOp->Asl.Value.Integer;
++            Tmp32 = (UINT32) InitializerOp->Asl.Value.Integer;
++            Descriptor->PinConfig.PinConfigValue = AcpiUtReadUint32 (&Tmp32);
+             RsCreateDwordField (InitializerOp, ACPI_RESTAG_PINCONFIG_VALUE,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (PinConfig.PinConfigValue));
+             break;
+@@ -1766,7 +1866,8 @@ RsDoPinConfigDescriptor (
+              *  (implies resource source must immediately follow the pin list.)
+              *  Name: _PIN
+              */
+-            *PinList = (UINT16) InitializerOp->Asl.Value.Integer;
++            Tmp16 = (UINT16) InitializerOp->Asl.Value.Integer;
++            *PinList = AcpiUtReadUint16 (&Tmp16);
+             PinList++;
+             PinCount++;
+ 
+@@ -1797,6 +1898,16 @@ RsDoPinConfigDescriptor (
+         InitializerOp = RsCompleteNodeAndGetNext (InitializerOp);
+     }
+ 
++    /* correct the endianness if needed */
++    Tmp16 = Descriptor->PinConfig.PinTableOffset;
++    Descriptor->PinConfig.PinTableOffset = AcpiUtReadUint16 (&Tmp16);
++    Tmp16 = Descriptor->PinConfig.ResSourceOffset;
++    Descriptor->PinConfig.ResSourceOffset = AcpiUtReadUint16 (&Tmp16);
++    Tmp16 = Descriptor->PinConfig.VendorOffset;
++    Descriptor->PinConfig.VendorOffset = AcpiUtReadUint16 (&Tmp16);
++    Tmp16 = Descriptor->PinConfig.VendorLength;
++    Descriptor->PinConfig.VendorLength = AcpiUtReadUint16 (&Tmp16);
++
+     return (Rnode);
+ }
+ 
+@@ -1830,6 +1941,7 @@ RsDoPinGroupDescriptor (
+     UINT32                  CurrentByteOffset;
+     UINT32                  PinCount = 0;
+     UINT32                  i;
++    UINT16                  Tmp16;
+ 
+     InitializerOp = Info->DescriptorTypeOp->Asl.Child;
+     CurrentByteOffset = Info->CurrentByteOffset;
+@@ -1853,7 +1965,7 @@ RsDoPinGroupDescriptor (
+         sizeof (AML_RESOURCE_LARGE_HEADER));
+ 
+     Descriptor = Rnode->Buffer;
+-    Descriptor->PinGroup.ResourceLength = DescriptorSize;
++    Descriptor->PinGroup.ResourceLength = AcpiUtReadUint16 (&DescriptorSize);
+     Descriptor->PinGroup.DescriptorType = ACPI_RESOURCE_NAME_PIN_GROUP;
+     Descriptor->PinGroup.RevisionId = AML_RESOURCE_PIN_GROUP_REVISION;
+ 
+@@ -1920,7 +2032,8 @@ RsDoPinGroupDescriptor (
+              *  (implies resource source must immediately follow the pin list.)
+              *  Name: _PIN
+              */
+-            *PinList = (UINT16) InitializerOp->Asl.Value.Integer;
++        Tmp16 = (UINT16) InitializerOp->Asl.Value.Integer;
++            *PinList = AcpiUtReadUint16 (&Tmp16);
+             PinList++;
+             PinCount++;
+ 
+@@ -1951,6 +2064,16 @@ RsDoPinGroupDescriptor (
+         InitializerOp = RsCompleteNodeAndGetNext (InitializerOp);
+     }
+ 
++    /* correct enddianness as needed */
++    Tmp16 = Descriptor->PinGroup.PinTableOffset;
++    Descriptor->PinGroup.PinTableOffset = AcpiUtReadUint16 (&Tmp16);
++    Tmp16 = Descriptor->PinGroup.LabelOffset;
++    Descriptor->PinGroup.LabelOffset = AcpiUtReadUint16 (&Tmp16);
++    Tmp16 = Descriptor->PinGroup.VendorOffset;
++    Descriptor->PinGroup.VendorOffset = AcpiUtReadUint16 (&Tmp16);
++    Tmp16 = Descriptor->PinGroup.VendorLength;
++    Descriptor->PinGroup.VendorLength = AcpiUtReadUint16 (&Tmp16);
++
+     return (Rnode);
+ }
+ 
+@@ -1983,6 +2106,7 @@ RsDoPinGroupFunctionDescriptor (
+     UINT16                  DescriptorSize;
+     UINT32                  CurrentByteOffset;
+     UINT32                  i;
++    UINT16                  Tmp16;
+ 
+     InitializerOp = Info->DescriptorTypeOp->Asl.Child;
+     CurrentByteOffset = Info->CurrentByteOffset;
+@@ -2006,7 +2130,7 @@ RsDoPinGroupFunctionDescriptor (
+         sizeof (AML_RESOURCE_LARGE_HEADER));
+ 
+     Descriptor = Rnode->Buffer;
+-    Descriptor->PinGroupFunction.ResourceLength = DescriptorSize;
++    Descriptor->PinGroupFunction.ResourceLength = AcpiUtReadUint16 (&DescriptorSize);
+     Descriptor->PinGroupFunction.DescriptorType = ACPI_RESOURCE_NAME_PIN_GROUP_FUNCTION;
+     Descriptor->PinGroupFunction.RevisionId = AML_RESOURCE_PIN_GROUP_FUNCTION_REVISION;
+ 
+@@ -2038,7 +2162,8 @@ RsDoPinGroupFunctionDescriptor (
+ 
+         case 1: /* Function Number [WORD] */
+ 
+-            Descriptor->PinGroupFunction.FunctionNumber = (UINT16) InitializerOp->Asl.Value.Integer;
++            Tmp16 = (UINT16) InitializerOp->Asl.Value.Integer;
++            Descriptor->PinGroupFunction.FunctionNumber = AcpiUtReadUint16 (&Tmp16);
+             RsCreateDwordField (InitializerOp, ACPI_RESTAG_FUNCTION,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (PinGroupFunction.FunctionNumber));
+             break;
+@@ -2097,6 +2222,16 @@ RsDoPinGroupFunctionDescriptor (
+         InitializerOp = RsCompleteNodeAndGetNext (InitializerOp);
+     }
+ 
++    /* correct enddianness as needed */
++    Tmp16 = Descriptor->PinGroupFunction.ResSourceOffset;
++    Descriptor->PinGroupFunction.ResSourceOffset = AcpiUtReadUint16 (&Tmp16);
++    Tmp16 = Descriptor->PinGroupFunction.ResSourceLabelOffset;
++    Descriptor->PinGroupFunction.ResSourceLabelOffset = AcpiUtReadUint16 (&Tmp16);
++    Tmp16 = Descriptor->PinGroupFunction.VendorOffset;
++    Descriptor->PinGroupFunction.VendorOffset = AcpiUtReadUint16 (&Tmp16);
++    Tmp16 = Descriptor->PinGroupFunction.VendorLength;
++    Descriptor->PinGroupFunction.VendorLength = AcpiUtReadUint16 (&Tmp16);
++
+     return (Rnode);
+ }
+ 
+@@ -2129,6 +2264,8 @@ RsDoPinGroupConfigDescriptor (
+     UINT16                  DescriptorSize;
+     UINT32                  CurrentByteOffset;
+     UINT32                  i;
++    UINT16                  Tmp16;
++    UINT32                  Tmp32;
+ 
+     InitializerOp = Info->DescriptorTypeOp->Asl.Child;
+     CurrentByteOffset = Info->CurrentByteOffset;
+@@ -2152,7 +2289,7 @@ RsDoPinGroupConfigDescriptor (
+         sizeof (AML_RESOURCE_LARGE_HEADER));
+ 
+     Descriptor = Rnode->Buffer;
+-    Descriptor->PinGroupConfig.ResourceLength = DescriptorSize;
++    Descriptor->PinGroupConfig.ResourceLength = AcpiUtReadUint16 (&DescriptorSize);
+     Descriptor->PinGroupConfig.DescriptorType = ACPI_RESOURCE_NAME_PIN_GROUP_CONFIG;
+     Descriptor->PinGroupConfig.RevisionId = AML_RESOURCE_PIN_GROUP_CONFIG_REVISION;
+ 
+@@ -2205,7 +2342,8 @@ RsDoPinGroupConfigDescriptor (
+ 
+         case 2: /* Pin Config Value [DWORD] (_VAL) */
+ 
+-            Descriptor->PinGroupConfig.PinConfigValue = (UINT32) InitializerOp->Asl.Value.Integer;
++            Tmp32 = (UINT32) InitializerOp->Asl.Value.Integer;
++            Descriptor->PinGroupConfig.PinConfigValue = AcpiUtReadUint32 (&Tmp32);
+             RsCreateDwordField (InitializerOp, ACPI_RESTAG_PINCONFIG_VALUE,
+                 CurrentByteOffset + ASL_RESDESC_OFFSET (PinGroupConfig.PinConfigValue));
+             break;
+@@ -2266,5 +2404,15 @@ RsDoPinGroupConfigDescriptor (
+         InitializerOp = RsCompleteNodeAndGetNext (InitializerOp);
+     }
+ 
++    /* correct enddianness as needed */
++    Tmp16 = Descriptor->PinGroupConfig.ResSourceOffset;
++    Descriptor->PinGroupConfig.ResSourceOffset = AcpiUtReadUint16 (&Tmp16);
++    Tmp16 = Descriptor->PinGroupConfig.ResSourceLabelOffset;
++    Descriptor->PinGroupConfig.ResSourceLabelOffset = AcpiUtReadUint16 (&Tmp16);
++    Tmp16 = Descriptor->PinGroupConfig.VendorOffset;
++    Descriptor->PinGroupConfig.VendorOffset = AcpiUtReadUint16 (&Tmp16);
++    Tmp16 = Descriptor->PinGroupConfig.VendorLength;
++    Descriptor->PinGroupConfig.VendorLength = AcpiUtReadUint16 (&Tmp16);
++
+     return (Rnode);
+ }

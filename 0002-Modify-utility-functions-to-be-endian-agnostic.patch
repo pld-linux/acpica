@@ -1,0 +1,200 @@
+From 51b0d06c0a6c4d4e19432ebf930299855c8fcf23 Mon Sep 17 00:00:00 2001
+From: Al Stone <ahs3@redhat.com>
+Date: Fri, 18 Sep 2020 15:14:30 -0600
+Subject: [PATCH 02/45] Modify utility functions to be endian-agnostic
+
+All of the modifications here use the big-endian code previously added
+(see utendian.c) to make themselves endian-agnostic; i.e., that the code
+does not need to change further to work on both big- and little-endian
+machines.
+
+These particular files were changed to handle the reading and writing
+of files (the length is often embedded in the binary stream), and to
+handle the reading and writing of integer values.  The common cases are
+to "read" a 32-bit unsigned int in little-endian format, but convert it
+to host-native, and to write a byte, word, double word or quad word value
+as little-endian, regardless of host-native format.
+
+Signed-off-by: Al Stone <ahs3@redhat.com>
+---
+ source/common/acfileio.c           | 16 ++++++++++------
+ source/common/dmtable.c            |  8 ++++----
+ source/compiler/dtfield.c          |  2 +-
+ source/compiler/dtsubtable.c       |  4 ++--
+ source/components/tables/tbprint.c | 13 +++++++++----
+ 5 files changed, 26 insertions(+), 17 deletions(-)
+
+Index: acpica-unix2-20220331/source/common/acfileio.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/common/acfileio.c
++++ acpica-unix2-20220331/source/common/acfileio.c
+@@ -280,6 +280,7 @@ AcGetOneTableFromFile (
+     ACPI_TABLE_HEADER       *Table;
+     INT32                   Count;
+     long                    TableOffset;
++    UINT32                  Length;
+ 
+ 
+     *ReturnTable = NULL;
+@@ -319,7 +320,8 @@ AcGetOneTableFromFile (
+ 
+     /* Allocate a buffer for the entire table */
+ 
+-    Table = AcpiOsAllocate ((ACPI_SIZE) TableHeader.Length);
++    Length = AcpiUtReadUint32 (&TableHeader.Length);
++    Table = AcpiOsAllocate ((ACPI_SIZE) Length);
+     if (!Table)
+     {
+         return (AE_NO_MEMORY);
+@@ -329,13 +331,13 @@ AcGetOneTableFromFile (
+ 
+     fseek (File, TableOffset, SEEK_SET);
+ 
+-    Count = fread (Table, 1, TableHeader.Length, File);
++    Count = fread (Table, 1, Length, File);
+ 
+     /*
+      * Checks for data table headers happen later in the execution. Only verify
+      * for Aml tables at this point in the code.
+      */
+-    if (GetOnlyAmlTables && Count != (INT32) TableHeader.Length)
++    if (GetOnlyAmlTables && Count != (INT32) Length)
+     {
+         Status = AE_ERROR;
+         goto ErrorExit;
+@@ -343,7 +345,7 @@ AcGetOneTableFromFile (
+ 
+     /* Validate the checksum (just issue a warning) */
+ 
+-    Status = AcpiTbVerifyChecksum (Table, TableHeader.Length);
++    Status = AcpiTbVerifyChecksum (Table, Length);
+     if (ACPI_FAILURE (Status))
+     {
+         Status = AcCheckTextModeCorruption (Table);
+@@ -436,6 +438,7 @@ AcValidateTableHeader (
+     long                    OriginalOffset;
+     UINT32                  FileSize;
+     UINT32                  i;
++    UINT32                  Length;
+ 
+ 
+     ACPI_FUNCTION_TRACE (AcValidateTableHeader);
+@@ -472,11 +475,12 @@ AcValidateTableHeader (
+     /* Validate table length against bytes remaining in the file */
+ 
+     FileSize = CmGetFileSize (File);
+-    if (TableHeader.Length > (UINT32) (FileSize - TableOffset))
++    Length = AcpiUtReadUint32 (&TableHeader.Length);
++    if (Length > (UINT32) (FileSize - TableOffset))
+     {
+         fprintf (stderr, "Table [%4.4s] is too long for file - "
+             "needs: 0x%.2X, remaining in file: 0x%.2X\n",
+-            TableHeader.Signature, TableHeader.Length,
++            TableHeader.Signature, Length,
+             (UINT32) (FileSize - TableOffset));
+         return (AE_BAD_HEADER);
+     }
+Index: acpica-unix2-20220331/source/common/dmtable.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/common/dmtable.c
++++ acpica-unix2-20220331/source/common/dmtable.c
+@@ -713,7 +713,7 @@ AcpiDmDumpDataTable (
+         {
+             /* Dump the raw table data */
+ 
+-            Length = Table->Length;
++            Length = AcpiUtReadUint32 (&Table->Length);
+ 
+             AcpiOsPrintf ("\n/*\n%s: Length %d (0x%X)\n\n",
+                 ACPI_RAW_TABLE_DATA_HEADER, Length, Length);
+@@ -730,7 +730,7 @@ AcpiDmDumpDataTable (
+      */
+     if (ACPI_COMPARE_NAMESEG (Table->Signature, ACPI_SIG_FACS))
+     {
+-        Length = Table->Length;
++        Length = AcpiUtReadUint32 (&Table->Length);
+         Status = AcpiDmDumpTable (Length, 0, Table, 0, AcpiDmTableInfoFacs);
+         if (ACPI_FAILURE (Status))
+         {
+@@ -751,7 +751,7 @@ AcpiDmDumpDataTable (
+         /*
+          * All other tables must use the common ACPI table header, dump it now
+          */
+-        Length = Table->Length;
++        Length = AcpiUtReadUint32(&Table->Length);
+         Status = AcpiDmDumpTable (Length, 0, Table, 0, AcpiDmTableInfoHeader);
+         if (ACPI_FAILURE (Status))
+         {
+@@ -1415,7 +1415,7 @@ AcpiDmDumpTable (
+ 
+             AcpiOsPrintf ("%2.2X", *Target);
+             Temp8 = AcpiDmGenerateChecksum (Table,
+-                ACPI_CAST_PTR (ACPI_TABLE_HEADER, Table)->Length,
++                AcpiUtReadUint32 (&(ACPI_CAST_PTR (ACPI_TABLE_HEADER, Table)->Length)),
+                 ACPI_CAST_PTR (ACPI_TABLE_HEADER, Table)->Checksum);
+ 
+             if (Temp8 != ACPI_CAST_PTR (ACPI_TABLE_HEADER, Table)->Checksum)
+Index: acpica-unix2-20220331/source/compiler/dtfield.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/compiler/dtfield.c
++++ acpica-unix2-20220331/source/compiler/dtfield.c
+@@ -361,7 +361,7 @@ DtCompileInteger (
+         DtError (ASL_ERROR, ASL_MSG_INTEGER_SIZE, Field, AslGbl_MsgBuffer);
+     }
+ 
+-    memcpy (Buffer, &Value, ByteLength);
++    AcpiUtWriteUint (Buffer, ByteLength, &Value, sizeof (UINT64));
+     return;
+ }
+ 
+Index: acpica-unix2-20220331/source/compiler/dtsubtable.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/compiler/dtsubtable.c
++++ acpica-unix2-20220331/source/compiler/dtsubtable.c
+@@ -378,6 +378,6 @@ DtSetSubtableLength (
+         return;
+     }
+ 
+-    memcpy (Subtable->LengthField, &Subtable->TotalLength,
+-        Subtable->SizeOfLengthField);
++    AcpiUtWriteUint (Subtable->LengthField, Subtable->SizeOfLengthField,
++                     &Subtable->TotalLength, sizeof (Subtable->TotalLength));
+ }
+Index: acpica-unix2-20220331/source/components/tables/tbprint.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/components/tables/tbprint.c
++++ acpica-unix2-20220331/source/components/tables/tbprint.c
+@@ -44,6 +44,8 @@
+ #include "acpi.h"
+ #include "accommon.h"
+ #include "actables.h"
++#include "platform/acenv.h"
++#include "acutils.h"
+ 
+ #define _COMPONENT          ACPI_TABLES
+         ACPI_MODULE_NAME    ("tbprint")
+@@ -151,7 +153,7 @@ AcpiTbPrintTableHeader (
+ 
+         ACPI_INFO (("%-4.4s 0x%8.8X%8.8X %06X",
+             Header->Signature, ACPI_FORMAT_UINT64 (Address),
+-            Header->Length));
++            AcpiUtReadUint32 (&Header->Length)));
+     }
+     else if (ACPI_VALIDATE_RSDP_SIG (ACPI_CAST_PTR (ACPI_TABLE_RSDP,
+         Header)->Signature))
+@@ -179,9 +181,12 @@ AcpiTbPrintTableHeader (
+             "%-4.4s 0x%8.8X%8.8X"
+             " %06X (v%.2d %-6.6s %-8.8s %08X %-4.4s %08X)",
+             LocalHeader.Signature, ACPI_FORMAT_UINT64 (Address),
+-            LocalHeader.Length, LocalHeader.Revision, LocalHeader.OemId,
+-            LocalHeader.OemTableId, LocalHeader.OemRevision,
+-            LocalHeader.AslCompilerId, LocalHeader.AslCompilerRevision));
++            AcpiUtReadUint32 (&LocalHeader.Length),
++            LocalHeader.Revision, LocalHeader.OemId,
++            LocalHeader.OemTableId,
++            AcpiUtReadUint32 (&LocalHeader.OemRevision),
++            LocalHeader.AslCompilerId,
++            AcpiUtReadUint32 (&LocalHeader.AslCompilerRevision)));
+     }
+ }
+ 

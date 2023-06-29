@@ -1,0 +1,42 @@
+Signed-off-by: Dean Nelson <dnelson@redhat.com>
+Reviewed-by: Al Stone <ahs3@redhat.com>
+---
+ source/common/dmtbdump3.c | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+Index: acpica-unix2-20220331/source/common/dmtbdump3.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/common/dmtbdump3.c
++++ acpica-unix2-20220331/source/common/dmtbdump3.c
+@@ -344,14 +344,14 @@ AcpiDmDumpSvkl (
+     ACPI_TABLE_HEADER       *Table)
+ {
+     ACPI_STATUS             Status;
+-    UINT32                  Length = Table->Length;
++    UINT32                  TableLength = AcpiUtReadUint32 (&Table->Length);
+     UINT32                  Offset = sizeof (ACPI_TABLE_SVKL);
+     ACPI_SVKL_KEY           *Subtable;
+ 
+ 
+     /* Main table */
+ 
+-    Status = AcpiDmDumpTable (Length, 0, Table, 0, AcpiDmTableInfoSvkl);
++    Status = AcpiDmDumpTable (TableLength, 0, Table, 0, AcpiDmTableInfoSvkl);
+     if (ACPI_FAILURE (Status))
+     {
+         return;
+@@ -360,12 +360,12 @@ AcpiDmDumpSvkl (
+     /* The rest of the table consists of subtables (single type) */
+ 
+     Subtable = ACPI_ADD_PTR (ACPI_SVKL_KEY, Table, Offset);
+-    while (Offset < Table->Length)
++    while (Offset < TableLength)
+     {
+         /* Dump the subtable */
+ 
+         AcpiOsPrintf ("\n");
+-        Status = AcpiDmDumpTable (Table->Length, Offset, Subtable,
++        Status = AcpiDmDumpTable (TableLength, Offset, Subtable,
+             sizeof (ACPI_SVKL_KEY), AcpiDmTableInfoSvkl0);
+         if (ACPI_FAILURE (Status))
+         {

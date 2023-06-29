@@ -1,0 +1,78 @@
+From 16734feab4204d6930c1ede62e527920607daace Mon Sep 17 00:00:00 2001
+From: Al Stone <ahs3@redhat.com>
+Date: Wed, 16 Sep 2020 16:27:06 -0600
+Subject: [PATCH 04/45] Re-enable support for big-endian machines
+
+First, disable the big-endian check and fail.  Then, make sure the
+namespace gets initialized properly (NB: needed even if we are only
+compiling/disassembling data tables).
+
+Signed-off-by: Al Stone <ahs3@redhat.com>
+---
+ source/compiler/aslmain.c             | 12 ------------
+ source/components/namespace/nsutils.c |  7 +++++--
+ 2 files changed, 5 insertions(+), 14 deletions(-)
+
+Index: acpica-unix2-20220331/source/compiler/aslmain.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/compiler/aslmain.c
++++ acpica-unix2-20220331/source/compiler/aslmain.c
+@@ -101,18 +101,6 @@ main (
+ 
+     signal (SIGINT, AslSignalHandler);
+ 
+-    /*
+-     * Big-endian machines are not currently supported. ACPI tables must
+-     * be little-endian, and support for big-endian machines needs to
+-     * be implemented.
+-     */
+-    if (UtIsBigEndianMachine ())
+-    {
+-        fprintf (stderr,
+-            "iASL is not currently supported on big-endian machines.\n");
+-        return (-1);
+-    }
+-
+     AcpiOsInitialize ();
+     ACPI_DEBUG_INITIALIZE (); /* For debug version only */
+ 
+Index: acpica-unix2-20220331/source/components/namespace/nsutils.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/components/namespace/nsutils.c
++++ acpica-unix2-20220331/source/components/namespace/nsutils.c
+@@ -272,6 +272,7 @@ AcpiNsBuildInternalName (
+     const char              *ExternalName = Info->NextExternalChar;
+     char                    *Result = NULL;
+     UINT32                  i;
++    char                    TmpSeg[ACPI_NAMESEG_SIZE+1];
+ 
+ 
+     ACPI_FUNCTION_TRACE (NsBuildInternalName);
+@@ -335,6 +336,7 @@ AcpiNsBuildInternalName (
+ 
+     for (; NumSegments; NumSegments--)
+     {
++        memset (TmpSeg, 0, ACPI_NAMESEG_SIZE+1);
+         for (i = 0; i < ACPI_NAMESEG_SIZE; i++)
+         {
+             if (ACPI_IS_PATH_SEPARATOR (*ExternalName) ||
+@@ -342,16 +344,17 @@ AcpiNsBuildInternalName (
+             {
+                 /* Pad the segment with underscore(s) if segment is short */
+ 
+-                Result[i] = '_';
++                TmpSeg[i] = '_';
+             }
+             else
+             {
+                 /* Convert the character to uppercase and save it */
+ 
+-                Result[i] = (char) toupper ((int) *ExternalName);
++                TmpSeg[i] = (char) toupper ((int) *ExternalName);
+                 ExternalName++;
+             }
+         }
++    AcpiUtWriteUint (Result, ACPI_NAMESEG_SIZE, TmpSeg, ACPI_NAMESEG_SIZE);
+ 
+         /* Now we must have a path separator, or the pathname is bad */
+ 

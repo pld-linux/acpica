@@ -1,0 +1,50 @@
+From 0fb79a24fb70ab1e1e4879220af82a9fa00af586 Mon Sep 17 00:00:00 2001
+From: Al Stone <ahs3@redhat.com>
+Date: Mon, 28 Sep 2020 13:01:18 -0600
+Subject: [PATCH 36/45] Support MCFG in a big-endian world
+
+Signed-off-by: Al Stone <ahs3@redhat.com>
+---
+ source/common/dmtbdump2.c | 11 ++++++-----
+ 1 file changed, 6 insertions(+), 5 deletions(-)
+
+Index: acpica-unix2-20220331/source/common/dmtbdump2.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/common/dmtbdump2.c
++++ acpica-unix2-20220331/source/common/dmtbdump2.c
+@@ -982,11 +982,12 @@ AcpiDmDumpMcfg (
+     ACPI_STATUS             Status;
+     UINT32                  Offset = sizeof (ACPI_TABLE_MCFG);
+     ACPI_MCFG_ALLOCATION    *Subtable;
++    UINT32                  TableLength = AcpiUtReadUint32 (&Table->Length);
+ 
+ 
+     /* Main table */
+ 
+-    Status = AcpiDmDumpTable (Table->Length, 0, Table, 0, AcpiDmTableInfoMcfg);
++    Status = AcpiDmDumpTable (TableLength, 0, Table, 0, AcpiDmTableInfoMcfg);
+     if (ACPI_FAILURE (Status))
+     {
+         return;
+@@ -995,17 +996,17 @@ AcpiDmDumpMcfg (
+     /* Subtables */
+ 
+     Subtable = ACPI_ADD_PTR (ACPI_MCFG_ALLOCATION, Table, Offset);
+-    while (Offset < Table->Length)
++    while (Offset < TableLength)
+     {
+-        if (Offset + sizeof (ACPI_MCFG_ALLOCATION) > Table->Length)
++        if (Offset + sizeof (ACPI_MCFG_ALLOCATION) > TableLength)
+         {
+             AcpiOsPrintf ("Warning: there are %u invalid trailing bytes\n",
+-                (UINT32) sizeof (ACPI_MCFG_ALLOCATION) - (Offset - Table->Length));
++                (UINT32) sizeof (ACPI_MCFG_ALLOCATION) - (Offset - TableLength));
+             return;
+         }
+ 
+         AcpiOsPrintf ("\n");
+-        Status = AcpiDmDumpTable (Table->Length, Offset, Subtable,
++        Status = AcpiDmDumpTable (TableLength, Offset, Subtable,
+             sizeof (ACPI_MCFG_ALLOCATION), AcpiDmTableInfoMcfg0);
+         if (ACPI_FAILURE (Status))
+         {

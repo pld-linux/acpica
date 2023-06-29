@@ -1,0 +1,38 @@
+From 75d974e42fefabfd6684d62f58bff678b55f396b Mon Sep 17 00:00:00 2001
+From: Al Stone <ahs3@redhat.com>
+Date: Wed, 23 Sep 2020 12:16:37 -0600
+Subject: [PATCH 21/45] Support XSDT in a big-endian world
+
+Signed-off-by: Al Stone <ahs3@redhat.com>
+---
+ source/common/dmtbdump.c | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+Index: acpica-unix2-20220331/source/common/dmtbdump.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/common/dmtbdump.c
++++ acpica-unix2-20220331/source/common/dmtbdump.c
+@@ -377,6 +377,7 @@ AcpiDmDumpXsdt (
+     UINT32                  Entries;
+     UINT32                  Offset;
+     UINT32                  i;
++    UINT32                  TableLength = AcpiUtReadUint32 (&Table->Length);
+ 
+ 
+     /* Point to start of table pointer array */
+@@ -386,12 +387,13 @@ AcpiDmDumpXsdt (
+ 
+     /* XSDT uses 64-bit pointers */
+ 
+-    Entries = (Table->Length - sizeof (ACPI_TABLE_HEADER)) / sizeof (UINT64);
++    Entries = (TableLength - sizeof (ACPI_TABLE_HEADER)) / sizeof (UINT64);
+ 
+     for (i = 0; i < Entries; i++)
+     {
+         AcpiDmLineHeader2 (Offset, sizeof (UINT64), "ACPI Table Address", i);
+-        AcpiOsPrintf ("%8.8X%8.8X\n", ACPI_FORMAT_UINT64 (Array[i]));
++        AcpiOsPrintf ("%8.8X%8.8X\n",
++                ACPI_FORMAT_UINT64 (AcpiUtReadUint64 (&Array[i])));
+         Offset += sizeof (UINT64);
+     }
+ }

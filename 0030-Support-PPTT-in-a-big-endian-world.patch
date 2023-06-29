@@ -1,0 +1,105 @@
+From 8923211d8bc1b0e4d3af6ff31ed6479057f612f6 Mon Sep 17 00:00:00 2001
+From: Al Stone <ahs3@redhat.com>
+Date: Fri, 25 Sep 2020 17:16:12 -0600
+Subject: [PATCH 30/45] Support PPTT in a big-endian world
+
+Signed-off-by: Al Stone <ahs3@redhat.com>
+---
+ source/common/dmtbdump2.c  | 17 ++++++++++-------
+ source/compiler/dttable2.c |  7 +++++--
+ 2 files changed, 15 insertions(+), 9 deletions(-)
+
+Index: acpica-unix2-20220331/source/common/dmtbdump2.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/common/dmtbdump2.c
++++ acpica-unix2-20220331/source/common/dmtbdump2.c
+@@ -2241,6 +2241,8 @@ AcpiDmDumpPptt (
+     UINT32                  Offset = sizeof (ACPI_TABLE_FPDT);
+     ACPI_DMTABLE_INFO       *InfoTable;
+     UINT32                  i;
++    UINT32                  TableLength = AcpiUtReadUint32 (&Table->Length);
++    UINT32                  NumPrivRes;
+ 
+ 
+     /* There is no main table (other than the standard ACPI header) */
+@@ -2248,7 +2250,7 @@ AcpiDmDumpPptt (
+     /* Subtables */
+ 
+     Offset = sizeof (ACPI_TABLE_HEADER);
+-    while (Offset < Table->Length)
++    while (Offset < TableLength)
+     {
+         AcpiOsPrintf ("\n");
+ 
+@@ -2260,7 +2262,7 @@ AcpiDmDumpPptt (
+             AcpiOsPrintf ("Invalid subtable length\n");
+             return;
+         }
+-        Status = AcpiDmDumpTable (Table->Length, Offset, Subtable,
++        Status = AcpiDmDumpTable (TableLength, Offset, Subtable,
+             Subtable->Length, AcpiDmTableInfoPpttHdr);
+         if (ACPI_FAILURE (Status))
+         {
+@@ -2302,7 +2304,7 @@ AcpiDmDumpPptt (
+             AcpiOsPrintf ("Invalid subtable length\n");
+             return;
+         }
+-        Status = AcpiDmDumpTable (Table->Length, Offset, Subtable,
++        Status = AcpiDmDumpTable (TableLength, Offset, Subtable,
+             Subtable->Length, InfoTable);
+         if (ACPI_FAILURE (Status))
+         {
+@@ -2318,15 +2320,16 @@ AcpiDmDumpPptt (
+ 
+             /* Dump SMBIOS handles */
+ 
+-            if ((UINT8)(Subtable->Length - SubtableOffset) <
+-                (UINT8)(PpttProcessor->NumberOfPrivResources * 4))
++            NumPrivRes = AcpiUtReadUint32 (&PpttProcessor->NumberOfPrivResources);
++            if ((UINT8) (Subtable->Length - SubtableOffset) <
++                (UINT8) (NumPrivRes * 4))
+             {
+                 AcpiOsPrintf ("Invalid private resource number\n");
+                 return;
+             }
+-            for (i = 0; i < PpttProcessor->NumberOfPrivResources; i++)
++            for (i = 0; i < NumPrivRes; i++)
+             {
+-                Status = AcpiDmDumpTable (Table->Length, Offset + SubtableOffset,
++                Status = AcpiDmDumpTable (TableLength, Offset + SubtableOffset,
+                     ACPI_ADD_PTR (ACPI_SUBTABLE_HEADER, Subtable, SubtableOffset),
+                     4, AcpiDmTableInfoPptt0a);
+                 if (ACPI_FAILURE (Status))
+Index: acpica-unix2-20220331/source/compiler/dttable2.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/compiler/dttable2.c
++++ acpica-unix2-20220331/source/compiler/dttable2.c
+@@ -1520,6 +1520,7 @@ DtCompilePptt (
+     DT_FIELD                **PFieldList = (DT_FIELD **) List;
+     DT_FIELD                *SubtableStart;
+     ACPI_TABLE_HEADER       *PpttAcpiHeader;
++    UINT32                  NumPrivRes;
+ 
+ 
+     ParentTable = DtPeekSubtable ();
+@@ -1584,7 +1585,7 @@ DtCompilePptt (
+             {
+                 /* Compile initiator proximity domain list */
+ 
+-                PpttProcessor->NumberOfPrivResources = 0;
++                NumPrivRes = 0;
+                 while (*PFieldList)
+                 {
+                     Status = DtCompileTable (PFieldList,
+@@ -1600,8 +1601,10 @@ DtCompilePptt (
+ 
+                     DtInsertSubtable (ParentTable, Subtable);
+                     PpttHeader->Length += (UINT8)(Subtable->Length);
+-                    PpttProcessor->NumberOfPrivResources++;
++                    NumPrivRes++;
+                 }
++                PpttProcessor->NumberOfPrivResources =
++                        AcpiUtReadUint32 (&NumPrivRes);
+             }
+             break;
+ 

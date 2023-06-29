@@ -1,0 +1,23 @@
+From bd137d3712e6bc7e4d2d11350a208a36750e4063 Mon Sep 17 00:00:00 2001
+From: Al Stone <ahs3@redhat.com>
+Date: Tue, 6 Jul 2021 18:26:41 -0600
+Subject: [PATCH 44/45] Initial support for WPBT in big-endian, needs more
+
+Signed-off-by: Al Stone <ahs3@redhat.com>
+---
+ source/compiler/dttable2.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Index: acpica-unix2-20210604/source/compiler/dttable2.c
+===================================================================
+--- acpica-unix2-20210604.orig/source/compiler/dttable2.c
++++ acpica-unix2-20210604/source/compiler/dttable2.c
+@@ -2638,7 +2638,7 @@ DtCompileWpbt (
+     AcpiUtWriteUint (&Length, sizeof (UINT16),
+            &Subtable->TotalLength, sizeof (UINT32));
+     Table = ACPI_CAST_PTR (ACPI_TABLE_WPBT, ParentTable->Buffer);
+-    Table->ArgumentsLength = Length;
++    Table->ArgumentsLength = AcpiUtReadUint16 (&Length);
+ 
+     ParentTable = DtPeekSubtable ();
+     DtInsertSubtable (ParentTable, Subtable);

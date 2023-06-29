@@ -1,0 +1,414 @@
+From 5bd43bca1708a56d32e63da0278e04caf2865927 Mon Sep 17 00:00:00 2001
+From: Al Stone <ahs3@redhat.com>
+Date: Tue, 29 Jun 2021 17:38:20 -0600
+Subject: [PATCH 41/45] Support IORT in a big-endian world
+
+Signed-off-by: Al Stone <ahs3@redhat.com>
+---
+ source/common/dmtbdump2.c  | 85 ++++++++++++++++++++++----------------
+ source/compiler/dttable1.c | 40 ++++++++++--------
+ 2 files changed, 72 insertions(+), 53 deletions(-)
+
+Index: acpica-unix2-20220331/source/common/dmtbdump2.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/common/dmtbdump2.c
++++ acpica-unix2-20220331/source/common/dmtbdump2.c
+@@ -77,17 +77,20 @@ AcpiDmDumpIort (
+     ACPI_IORT_RMR           *IortRmr = NULL;
+     UINT32                  Offset;
+     UINT32                  NodeOffset;
++    UINT32                  NodeLength;
+     UINT32                  Length;
+     ACPI_DMTABLE_INFO       *InfoTable;
+     char                    *String;
+     UINT32                  i;
+     UINT32                  MappingByteLength;
+     UINT8                   Revision;
++    UINT32                  MappingCount;
++    UINT32                  TableLength = AcpiUtReadUint32 (&Table->Length);
+ 
+ 
+     /* Main table */
+ 
+-    Status = AcpiDmDumpTable (Table->Length, 0, Table, 0, AcpiDmTableInfoIort);
++    Status = AcpiDmDumpTable (TableLength, 0, Table, 0, AcpiDmTableInfoIort);
+     if (ACPI_FAILURE (Status))
+     {
+         return;
+@@ -109,18 +112,19 @@ AcpiDmDumpIort (
+ 
+     /* Dump the OptionalPadding (optional) */
+ 
+-    if (Iort->NodeOffset > Offset)
++    NodeOffset = AcpiUtReadUint32 (&Iort->NodeOffset);
++    if (NodeOffset > Offset)
+     {
+-        Status = AcpiDmDumpTable (Table->Length, Offset, Table,
+-            Iort->NodeOffset - Offset, AcpiDmTableInfoIortPad);
++        Status = AcpiDmDumpTable (TableLength, Offset, Table,
++            NodeOffset - Offset, AcpiDmTableInfoIortPad);
+         if (ACPI_FAILURE (Status))
+         {
+             return;
+         }
+     }
+ 
+-    Offset = Iort->NodeOffset;
+-    while (Offset < Table->Length)
++    Offset = AcpiUtReadUint32 (&Iort->NodeOffset);
++    while (Offset < TableLength)
+     {
+         /* Common subtable header */
+ 
+@@ -130,12 +134,12 @@ AcpiDmDumpIort (
+ 
+         if (Revision == 0)
+         {
+-            Status = AcpiDmDumpTable (Table->Length, Offset,
++            Status = AcpiDmDumpTable (TableLength, Offset,
+                 IortNode, Length, AcpiDmTableInfoIortHdr);
+         }
+         else if (Revision >= 3)
+         {
+-            Status = AcpiDmDumpTable (Table->Length, Offset,
++            Status = AcpiDmDumpTable (TableLength, Offset,
+                 IortNode, Length, AcpiDmTableInfoIortHdr3);
+         }
+ 
+@@ -166,7 +170,7 @@ AcpiDmDumpIort (
+         case ACPI_IORT_NODE_PCI_ROOT_COMPLEX:
+ 
+             InfoTable = AcpiDmTableInfoIort2;
+-            Length = IortNode->Length - NodeOffset;
++            Length = AcpiUtReadUint16 (&IortNode->Length) - NodeOffset;
+             break;
+ 
+         case ACPI_IORT_NODE_SMMU:
+@@ -179,19 +183,19 @@ AcpiDmDumpIort (
+         case ACPI_IORT_NODE_SMMU_V3:
+ 
+             InfoTable = AcpiDmTableInfoIort4;
+-            Length = IortNode->Length - NodeOffset;
++            Length = AcpiUtReadUint16 (&IortNode->Length) - NodeOffset;
+             break;
+ 
+         case ACPI_IORT_NODE_PMCG:
+ 
+             InfoTable = AcpiDmTableInfoIort5;
+-            Length = IortNode->Length - NodeOffset;
++            Length = AcpiUtReadUint16 (&IortNode->Length) - NodeOffset;
+             break;
+ 
+         case ACPI_IORT_NODE_RMR:
+ 
+             InfoTable = AcpiDmTableInfoIort6;
+-            Length = IortNode->Length - NodeOffset;
++            Length = AcpiUtReadUint16 (&IortNode->Length) - NodeOffset;
+             IortRmr = ACPI_ADD_PTR (ACPI_IORT_RMR, IortNode, NodeOffset);
+             break;
+ 
+@@ -202,7 +206,7 @@ AcpiDmDumpIort (
+ 
+             /* Attempt to continue */
+ 
+-            if (!IortNode->Length)
++            if (!AcpiUtReadUint16 (&IortNode->Length))
+             {
+                 AcpiOsPrintf ("Invalid zero length IORT node\n");
+                 return;
+@@ -213,7 +217,7 @@ AcpiDmDumpIort (
+         /* Dump the node subtable header */
+ 
+         AcpiOsPrintf ("\n");
+-        Status = AcpiDmDumpTable (Table->Length, Offset + NodeOffset,
++        Status = AcpiDmDumpTable (TableLength, Offset + NodeOffset,
+             ACPI_ADD_PTR (ACPI_IORT_NODE, IortNode, NodeOffset),
+             Length, InfoTable);
+         if (ACPI_FAILURE (Status))
+@@ -233,9 +237,10 @@ AcpiDmDumpIort (
+ 
+             if (IortItsGroup)
+             {
+-                for (i = 0; i < IortItsGroup->ItsCount; i++)
++	        UINT32 ItsCount = AcpiUtReadUint32 (&IortItsGroup->ItsCount);
++                for (i = 0; i < ItsCount; i++)
+                 {
+-                    Status = AcpiDmDumpTable (Table->Length, Offset + NodeOffset,
++                    Status = AcpiDmDumpTable (TableLength, Offset + NodeOffset,
+                         ACPI_ADD_PTR (ACPI_IORT_NODE, IortNode, NodeOffset),
+                         4, AcpiDmTableInfoIort0a);
+                     if (ACPI_FAILURE (Status))
+@@ -252,12 +257,14 @@ AcpiDmDumpIort (
+ 
+             /* Dump the Padding (optional) */
+ 
+-            if (IortNode->Length > NodeOffset)
++            NodeLength = AcpiUtReadUint16 (&IortNode->Length);
++            if (NodeLength > NodeOffset)
+             {
+                 MappingByteLength =
+-                    IortNode->MappingCount * sizeof (ACPI_IORT_ID_MAPPING);
+-                Status = AcpiDmDumpTable (Table->Length, Offset + NodeOffset,
+-                    Table, IortNode->Length - NodeOffset - MappingByteLength,
++                    AcpiUtReadUint32 (&IortNode->MappingCount) *
++		    sizeof (ACPI_IORT_ID_MAPPING);
++                Status = AcpiDmDumpTable (TableLength, Offset + NodeOffset,
++                    Table, NodeLength - NodeOffset - MappingByteLength,
+                     AcpiDmTableInfoIort1a);
+                 if (ACPI_FAILURE (Status))
+                 {
+@@ -274,9 +281,11 @@ AcpiDmDumpIort (
+ 
+             if (IortSmmu)
+             {
++	        UINT32 InterruptCount;
++
+                 Length = 2 * sizeof (UINT64);
+-                NodeOffset = IortSmmu->GlobalInterruptOffset;
+-                Status = AcpiDmDumpTable (Table->Length, Offset + NodeOffset,
++                NodeOffset = AcpiUtReadUint32 (&IortSmmu->GlobalInterruptOffset);
++                Status = AcpiDmDumpTable (TableLength, Offset + NodeOffset,
+                     ACPI_ADD_PTR (ACPI_IORT_NODE, IortNode, NodeOffset),
+                     Length, AcpiDmTableInfoIort3a);
+                 if (ACPI_FAILURE (Status))
+@@ -284,10 +293,11 @@ AcpiDmDumpIort (
+                     return;
+                 }
+ 
+-                NodeOffset = IortSmmu->ContextInterruptOffset;
+-                for (i = 0; i < IortSmmu->ContextInterruptCount; i++)
++                NodeOffset = AcpiUtReadUint32 (&IortSmmu->ContextInterruptOffset);
++                InterruptCount = AcpiUtReadUint32 (&IortSmmu->ContextInterruptCount);
++                for (i = 0; i < InterruptCount; i++)
+                 {
+-                    Status = AcpiDmDumpTable (Table->Length, Offset + NodeOffset,
++                    Status = AcpiDmDumpTable (TableLength, Offset + NodeOffset,
+                         ACPI_ADD_PTR (ACPI_IORT_NODE, IortNode, NodeOffset),
+                         8, AcpiDmTableInfoIort3b);
+                     if (ACPI_FAILURE (Status))
+@@ -298,10 +308,11 @@ AcpiDmDumpIort (
+                     NodeOffset += 8;
+                 }
+ 
+-                NodeOffset = IortSmmu->PmuInterruptOffset;
+-                for (i = 0; i < IortSmmu->PmuInterruptCount; i++)
++                NodeOffset = AcpiUtReadUint32 (&IortSmmu->PmuInterruptOffset);
++                InterruptCount = AcpiUtReadUint32 (&IortSmmu->PmuInterruptCount);
++                for (i = 0; i < InterruptCount; i++)
+                 {
+-                    Status = AcpiDmDumpTable (Table->Length, Offset + NodeOffset,
++                    Status = AcpiDmDumpTable (TableLength, Offset + NodeOffset,
+                         ACPI_ADD_PTR (ACPI_IORT_NODE, IortNode, NodeOffset),
+                         8, AcpiDmTableInfoIort3c);
+                     if (ACPI_FAILURE (Status))
+@@ -319,12 +330,15 @@ AcpiDmDumpIort (
+             /* Validate IortRmr to avoid compiler warnings */
+             if (IortRmr)
+             {
+-                NodeOffset = IortRmr->RmrOffset;
++	        UINT32 RmrCount;
++
++                NodeOffset = AcpiUtReadUint32 (&IortRmr->RmrOffset);
++                RmrCount = AcpiUtReadUint32 (&IortRmr->RmrCount);
+                 Length = sizeof (ACPI_IORT_RMR_DESC);
+-                for (i = 0; i < IortRmr->RmrCount; i++)
++                for (i = 0; i < RmrCount; i++)
+                 {
+                     AcpiOsPrintf ("\n");
+-                    Status = AcpiDmDumpTable (Table->Length, Offset + NodeOffset,
++                    Status = AcpiDmDumpTable (TableLength, Offset + NodeOffset,
+                         ACPI_ADD_PTR (ACPI_IORT_NODE, IortNode, NodeOffset),
+                         Length, AcpiDmTableInfoIort6a);
+                     if (ACPI_FAILURE (Status))
+@@ -344,12 +358,13 @@ AcpiDmDumpIort (
+ 
+         /* Dump the ID mappings */
+ 
+-        NodeOffset = IortNode->MappingOffset;
+-        for (i = 0; i < IortNode->MappingCount; i++)
++        NodeOffset = AcpiUtReadUint32 (&IortNode->MappingOffset);
++        MappingCount = AcpiUtReadUint32 (&IortNode->MappingCount);
++        for (i = 0; i < MappingCount; i++)
+         {
+             AcpiOsPrintf ("\n");
+             Length = sizeof (ACPI_IORT_ID_MAPPING);
+-            Status = AcpiDmDumpTable (Table->Length, Offset + NodeOffset,
++            Status = AcpiDmDumpTable (TableLength, Offset + NodeOffset,
+                 ACPI_ADD_PTR (ACPI_IORT_NODE, IortNode, NodeOffset),
+                 Length, AcpiDmTableInfoIortMap);
+             if (ACPI_FAILURE (Status))
+@@ -363,7 +378,7 @@ AcpiDmDumpIort (
+ NextSubtable:
+         /* Point to next node subtable */
+ 
+-        Offset += IortNode->Length;
++        Offset += AcpiUtReadUint16 (&IortNode->Length);
+     }
+ }
+ 
+Index: acpica-unix2-20220331/source/compiler/dttable1.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/compiler/dttable1.c
++++ acpica-unix2-20220331/source/compiler/dttable1.c
+@@ -1960,6 +1960,7 @@ DtCompileIort (
+     ACPI_IORT_ITS_GROUP     *IortItsGroup;
+     ACPI_IORT_SMMU          *IortSmmu;
+     ACPI_IORT_RMR           *IortRmr;
++    UINT32                  IortNodeOffset;
+     UINT32                  NodeNumber;
+     UINT32                  NodeLength;
+     UINT32                  IdMappingNumber;
+@@ -2005,7 +2006,7 @@ DtCompileIort (
+      * Optionally allows the generic data types to be used for filling
+      * this field.
+      */
+-    Iort->NodeOffset = sizeof (ACPI_TABLE_IORT);
++    IortNodeOffset = sizeof (ACPI_TABLE_IORT);
+     Status = DtCompileTable (PFieldList, AcpiDmTableInfoIortPad,
+         &Subtable);
+     if (ACPI_FAILURE (Status))
+@@ -2015,7 +2016,7 @@ DtCompileIort (
+     if (Subtable)
+     {
+         DtInsertSubtable (ParentTable, Subtable);
+-        Iort->NodeOffset += Subtable->Length;
++        IortNodeOffset += Subtable->Length;
+     }
+     else
+     {
+@@ -2025,7 +2026,7 @@ DtCompileIort (
+         {
+             return (Status);
+         }
+-        Iort->NodeOffset += PaddingLength;
++        IortNodeOffset += PaddingLength;
+     }
+ 
+     NodeNumber = 0;
+@@ -2089,7 +2090,7 @@ DtCompileIort (
+                 ItsNumber++;
+             }
+ 
+-            IortItsGroup->ItsCount = ItsNumber;
++            IortItsGroup->ItsCount = AcpiUtReadUint32 (&ItsNumber);
+             break;
+ 
+         case ACPI_IORT_NODE_NAMED_COMPONENT:
+@@ -2123,15 +2124,18 @@ DtCompileIort (
+             }
+             else
+             {
+-                if (NodeLength > IortNode->MappingOffset)
++	        UINT32 MappingOffset;
++
++                MappingOffset = IortNode->MappingOffset;
++                if (NodeLength > MappingOffset)
+                 {
+                     return (AE_BAD_DATA);
+                 }
+ 
+-                if (NodeLength < IortNode->MappingOffset)
++                if (NodeLength < MappingOffset)
+                 {
+                     Status = DtCompilePadding (
+-                        IortNode->MappingOffset - NodeLength,
++                        MappingOffset - NodeLength,
+                         &Subtable);
+                     if (ACPI_FAILURE (Status))
+                     {
+@@ -2139,7 +2143,7 @@ DtCompileIort (
+                     }
+ 
+                     DtInsertSubtable (ParentTable, Subtable);
+-                    NodeLength = IortNode->MappingOffset;
++                    NodeLength = MappingOffset;
+                 }
+             }
+             break;
+@@ -2172,7 +2176,7 @@ DtCompileIort (
+ 
+             /* Compile global interrupt array */
+ 
+-            IortSmmu->GlobalInterruptOffset = NodeLength;
++            IortSmmu->GlobalInterruptOffset = AcpiUtReadUint32 (&NodeLength);
+             Status = DtCompileTable (PFieldList, AcpiDmTableInfoIort3a,
+                 &Subtable);
+             if (ACPI_FAILURE (Status))
+@@ -2186,7 +2190,7 @@ DtCompileIort (
+             /* Compile context interrupt array */
+ 
+             ContextIrptNumber = 0;
+-            IortSmmu->ContextInterruptOffset = NodeLength;
++            IortSmmu->ContextInterruptOffset = AcpiUtReadUint32 (&NodeLength);
+             while (*PFieldList)
+             {
+                 Status = DtCompileTable (PFieldList, AcpiDmTableInfoIort3b,
+@@ -2206,12 +2210,12 @@ DtCompileIort (
+                 ContextIrptNumber++;
+             }
+ 
+-            IortSmmu->ContextInterruptCount = ContextIrptNumber;
++            IortSmmu->ContextInterruptCount = AcpiUtReadUint32 (&ContextIrptNumber);
+ 
+             /* Compile PMU interrupt array */
+ 
+             PmuIrptNumber = 0;
+-            IortSmmu->PmuInterruptOffset = NodeLength;
++            IortSmmu->PmuInterruptOffset = AcpiUtReadUint32 (&NodeLength);
+             while (*PFieldList)
+             {
+                 Status = DtCompileTable (PFieldList, AcpiDmTableInfoIort3c,
+@@ -2231,7 +2235,7 @@ DtCompileIort (
+                 PmuIrptNumber++;
+             }
+ 
+-            IortSmmu->PmuInterruptCount = PmuIrptNumber;
++            IortSmmu->PmuInterruptCount = AcpiUtReadUint32 (&PmuIrptNumber);
+             break;
+ 
+         case ACPI_IORT_NODE_SMMU_V3:
+@@ -2276,7 +2280,7 @@ DtCompileIort (
+             /* Compile RMR Descriptors */
+ 
+             RmrCount = 0;
+-            IortRmr->RmrOffset = NodeLength;
++            IortRmr->RmrOffset = AcpiUtReadUint32 (&NodeLength);
+             while (*PFieldList)
+             {
+                 Status = DtCompileTable (PFieldList, AcpiDmTableInfoIort6a,
+@@ -2296,7 +2300,7 @@ DtCompileIort (
+                 RmrCount++;
+             }
+ 
+-            IortRmr->RmrCount = RmrCount;
++            IortRmr->RmrCount = AcpiUtReadUint32 (&RmrCount);
+             break;
+ 
+         default:
+@@ -2307,7 +2311,7 @@ DtCompileIort (
+ 
+         /* Compile Array of ID mappings */
+ 
+-        IortNode->MappingOffset = NodeLength;
++        IortNode->MappingOffset = AcpiUtReadUint32 (&NodeLength);
+         IdMappingNumber = 0;
+         while (*PFieldList)
+         {
+@@ -2328,7 +2332,7 @@ DtCompileIort (
+             IdMappingNumber++;
+         }
+ 
+-        IortNode->MappingCount = IdMappingNumber;
++        IortNode->MappingCount = AcpiUtReadUint32 (&IdMappingNumber);
+         if (!IdMappingNumber)
+         {
+             IortNode->MappingOffset = 0;
+@@ -2343,7 +2347,7 @@ DtCompileIort (
+         NodeNumber++;
+     }
+ 
+-    Iort->NodeCount = NodeNumber;
++    Iort->NodeCount = AcpiUtReadUint32 (&NodeNumber);
+     return (AE_OK);
+ }
+ 

@@ -1,7 +1,7 @@
-Index: acpica-unix-20200214/source/compiler/aslanalyze.c
+Index: acpica-unix2-20220331/source/compiler/aslanalyze.c
 ===================================================================
---- acpica-unix-20200214.orig/source/compiler/aslanalyze.c
-+++ acpica-unix-20200214/source/compiler/aslanalyze.c
+--- acpica-unix2-20220331.orig/source/compiler/aslanalyze.c
++++ acpica-unix2-20220331/source/compiler/aslanalyze.c
 @@ -358,11 +358,16 @@ AnCheckMethodReturnValue (
           */
          if (ThisNodeBtype != 0)
@@ -14,17 +14,17 @@ Index: acpica-unix-20200214/source/compiler/aslanalyze.c
                  "Method returns [%s], %s operator requires [%s]",
                  AslGbl_StringBuffer, OpInfo->Name, AslGbl_StringBuffer2);
  
--            AslError (ASL_ERROR, ASL_MSG_INVALID_TYPE, ArgOp, AslGbl_MsgBuffer);
-+            AslError (ASL_ERROR, ASL_MSG_INVALID_TYPE, ArgOp, strp);
+-            AslError (ASL_WARNING, ASL_MSG_INVALID_TYPE, ArgOp, AslGbl_MsgBuffer);
++            AslError (ASL_WARNING, ASL_MSG_INVALID_TYPE, ArgOp, strp);
 +	     if (cnt > 0)
 +	         free(strp);
          }
      }
  
-Index: acpica-unix-20200214/source/compiler/aslpredef.c
+Index: acpica-unix2-20220331/source/compiler/aslpredef.c
 ===================================================================
---- acpica-unix-20200214.orig/source/compiler/aslpredef.c
-+++ acpica-unix-20200214/source/compiler/aslpredef.c
+--- acpica-unix2-20220331.orig/source/compiler/aslpredef.c
++++ acpica-unix2-20220331/source/compiler/aslpredef.c
 @@ -159,14 +159,19 @@ ApCheckForPredefinedMethod (
          if (MethodInfo->NumReturnNoValue &&
              ThisName->Info.ExpectedBtypes)
@@ -84,10 +84,10 @@ Index: acpica-unix-20200214/source/compiler/aslpredef.c
      return (AE_TYPE);
  }
  
-Index: acpica-unix-20200214/source/compiler/aslwalks.c
+Index: acpica-unix2-20220331/source/compiler/aslwalks.c
 ===================================================================
---- acpica-unix-20200214.orig/source/compiler/aslwalks.c
-+++ acpica-unix-20200214/source/compiler/aslwalks.c
+--- acpica-unix2-20220331.orig/source/compiler/aslwalks.c
++++ acpica-unix2-20220331/source/compiler/aslwalks.c
 @@ -515,15 +515,19 @@ AnOperandTypecheckWalkEnd (
              else if (!CommonBtypes)
              {

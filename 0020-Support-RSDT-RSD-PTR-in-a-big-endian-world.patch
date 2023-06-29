@@ -1,0 +1,37 @@
+From 198abe6e9fcb03676513146bf2f9b8ccc49e5827 Mon Sep 17 00:00:00 2001
+From: Al Stone <ahs3@redhat.com>
+Date: Wed, 23 Sep 2020 12:11:46 -0600
+Subject: [PATCH 20/45] Support RSDT ('RSD PTR') in a big-endian world
+
+Signed-off-by: Al Stone <ahs3@redhat.com>
+---
+ source/common/dmtbdump.c | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+Index: acpica-unix2-20220331/source/common/dmtbdump.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/common/dmtbdump.c
++++ acpica-unix2-20220331/source/common/dmtbdump.c
+@@ -336,6 +336,7 @@ AcpiDmDumpRsdt (
+     UINT32                  Entries;
+     UINT32                  Offset;
+     UINT32                  i;
++    UINT32                  TableLength = AcpiUtReadUint32 (&Table->Length);
+ 
+ 
+     /* Point to start of table pointer array */
+@@ -345,12 +346,12 @@ AcpiDmDumpRsdt (
+ 
+     /* RSDT uses 32-bit pointers */
+ 
+-    Entries = (Table->Length - sizeof (ACPI_TABLE_HEADER)) / sizeof (UINT32);
++    Entries = (TableLength - sizeof (ACPI_TABLE_HEADER)) / sizeof (UINT32);
+ 
+     for (i = 0; i < Entries; i++)
+     {
+         AcpiDmLineHeader2 (Offset, sizeof (UINT32), "ACPI Table Address", i);
+-        AcpiOsPrintf ("%8.8X\n", Array[i]);
++        AcpiOsPrintf ("%8.8X\n", AcpiUtReadUint32 (&Array[i]));
+         Offset += sizeof (UINT32);
+     }
+ }

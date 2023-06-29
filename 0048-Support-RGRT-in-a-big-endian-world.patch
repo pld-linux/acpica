@@ -1,0 +1,35 @@
+Signed-off-by: Dean Nelson <dnelson@redhat.com>
+Reviewed-by: Al Stone <ahs3@redhat.com>
+---
+ source/common/dmtbdump2.c | 7 ++++---
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+Index: acpica-unix2-20220331/source/common/dmtbdump2.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/common/dmtbdump2.c
++++ acpica-unix2-20220331/source/common/dmtbdump2.c
+@@ -2475,11 +2475,12 @@ AcpiDmDumpRgrt (
+     ACPI_STATUS             Status;
+     ACPI_TABLE_RGRT         *Subtable = ACPI_CAST_PTR (ACPI_TABLE_RGRT, Table);
+     UINT32                  Offset = sizeof (ACPI_TABLE_RGRT);
++    UINT32                  TableLength = AcpiUtReadUint32 (&Table->Length);
+ 
+ 
+     /* Main table */
+ 
+-    Status = AcpiDmDumpTable (Table->Length, 0, Table, 0, AcpiDmTableInfoRgrt);
++    Status = AcpiDmDumpTable (TableLength, 0, Table, 0, AcpiDmTableInfoRgrt);
+     if (ACPI_FAILURE (Status))
+     {
+         return;
+@@ -2487,8 +2488,8 @@ AcpiDmDumpRgrt (
+ 
+     /* Dump the binary image as a subtable */
+ 
+-    Status = AcpiDmDumpTable (Table->Length, Offset, &Subtable->Image,
+-        Table->Length - Offset, AcpiDmTableInfoRgrt0);
++    Status = AcpiDmDumpTable (TableLength, Offset, &Subtable->Image,
++        TableLength - Offset, AcpiDmTableInfoRgrt0);
+     if (ACPI_FAILURE (Status))
+     {
+         return;

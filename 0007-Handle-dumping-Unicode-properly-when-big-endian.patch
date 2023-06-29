@@ -1,0 +1,53 @@
+From 9a4a32c597fcdfa8a3bc33230c40a18e39c3449d Mon Sep 17 00:00:00 2001
+From: Al Stone <ahs3@redhat.com>
+Date: Thu, 1 Jul 2021 17:46:19 -0600
+Subject: [PATCH 07/45] Handle dumping Unicode properly when big-endian
+
+Signed-off-by: Al Stone <ahs3@redhat.com>
+---
+ source/common/dmtbdump.c | 11 ++++++++---
+ 1 file changed, 8 insertions(+), 3 deletions(-)
+
+Index: acpica-unix2-20220331/source/common/dmtbdump.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/common/dmtbdump.c
++++ acpica-unix2-20220331/source/common/dmtbdump.c
+@@ -200,6 +200,8 @@ AcpiDmDumpUnicode (
+     UINT8                   *Buffer;
+     UINT32                  Length;
+     UINT32                  i;
++    UINT16		    Tmp16;
++    UINT32                  start;
+ 
+ 
+     Buffer = ((UINT8 *) Table) + BufferOffset;
+@@ -209,7 +211,8 @@ AcpiDmDumpUnicode (
+ 
+     for (i = 0; i < Length; i += 2)
+     {
+-        if (!isprint (Buffer[i]))
++        Tmp16 = AcpiUtReadUint16 (&Buffer[i]);
++        if (!isprint (Tmp16))
+         {
+             goto DumpRawBuffer;
+         }
+@@ -217,7 +220,8 @@ AcpiDmDumpUnicode (
+ 
+     /* Ensure all high bytes are zero */
+ 
+-    for (i = 1; i < Length; i += 2)
++    start = UtIsBigEndianMachine() ? 0 : 1;
++    for (i = start; i < Length; i += 2)
+     {
+         if (Buffer[i])
+         {
+@@ -230,7 +234,8 @@ AcpiDmDumpUnicode (
+     AcpiOsPrintf ("\"");
+     for (i = 0; i < Length; i += 2)
+     {
+-        AcpiOsPrintf ("%c", Buffer[i]);
++        Tmp16 = AcpiUtReadUint16 (&Buffer[i]);
++        AcpiOsPrintf ("%c", Tmp16);
+     }
+ 
+     AcpiOsPrintf ("\"\n");

@@ -1,0 +1,55 @@
+From ce811b4c38b9a09533ee8bafa22813f6e43c023d Mon Sep 17 00:00:00 2001
+From: Al Stone <ahs3@redhat.com>
+Date: Fri, 18 Sep 2020 16:41:02 -0600
+Subject: [PATCH 09/45] Support ASF! tables in a big-endian world
+
+Read the table length properly and it all works right for big-endian.
+
+Signed-off-by: Al Stone <ahs3@redhat.com>
+---
+ source/common/dmtbdump1.c | 10 ++++++----
+ 1 file changed, 6 insertions(+), 4 deletions(-)
+
+Index: acpica-unix2-20220331/source/common/dmtbdump1.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/common/dmtbdump1.c
++++ acpica-unix2-20220331/source/common/dmtbdump1.c
+@@ -358,16 +358,18 @@ AcpiDmDumpAsf (
+     UINT32                  DataOffset = 0;
+     UINT32                  i;
+     UINT8                   Type;
++    UINT32                  TableLength;
+ 
+ 
+     /* No main table, only subtables */
+ 
+     Subtable = ACPI_ADD_PTR (ACPI_ASF_INFO, Table, Offset);
+-    while (Offset < Table->Length)
++    TableLength = AcpiUtReadUint32 (&Table->Length);
++    while (Offset < TableLength)
+     {
+         /* Common subtable header */
+ 
+-        Status = AcpiDmDumpTable (Table->Length, Offset, Subtable,
++        Status = AcpiDmDumpTable (TableLength, Offset, Subtable,
+             Subtable->Header.Length, AcpiDmTableInfoAsfHdr);
+         if (ACPI_FAILURE (Status))
+         {
+@@ -425,7 +427,7 @@ AcpiDmDumpAsf (
+             return;
+         }
+ 
+-        Status = AcpiDmDumpTable (Table->Length, Offset, Subtable,
++        Status = AcpiDmDumpTable (TableLength, Offset, Subtable,
+             Subtable->Header.Length, InfoTable);
+         if (ACPI_FAILURE (Status))
+         {
+@@ -442,7 +444,7 @@ AcpiDmDumpAsf (
+             for (i = 0; i < DataCount; i++)
+             {
+                 AcpiOsPrintf ("\n");
+-                Status = AcpiDmDumpTable (Table->Length, DataOffset,
++                Status = AcpiDmDumpTable (TableLength, DataOffset,
+                     DataTable, DataLength, DataInfoTable);
+                 if (ACPI_FAILURE (Status))
+                 {

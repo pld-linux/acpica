@@ -1,0 +1,46 @@
+From d10bfd67b5352ff5587e06fc1f82b896bab49614 Mon Sep 17 00:00:00 2001
+From: Al Stone <ahs3@redhat.com>
+Date: Mon, 28 Sep 2020 16:49:30 -0600
+Subject: [PATCH 37/45] Support LPIT in a big-endian world
+
+Signed-off-by: Al Stone <ahs3@redhat.com>
+---
+ source/common/dmtbdump2.c | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+Index: acpica-unix2-20220331/source/common/dmtbdump2.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/common/dmtbdump2.c
++++ acpica-unix2-20220331/source/common/dmtbdump2.c
+@@ -690,7 +690,7 @@ AcpiDmDumpLpit (
+ {
+     ACPI_STATUS             Status;
+     ACPI_LPIT_HEADER        *Subtable;
+-    UINT32                  Length = Table->Length;
++    UINT32                  TableLength = AcpiUtReadUint32 (&Table->Length);
+     UINT32                  Offset = sizeof (ACPI_TABLE_LPIT);
+     ACPI_DMTABLE_INFO       *InfoTable;
+     UINT32                  SubtableLength;
+@@ -699,11 +699,11 @@ AcpiDmDumpLpit (
+     /* Subtables */
+ 
+     Subtable = ACPI_ADD_PTR (ACPI_LPIT_HEADER, Table, Offset);
+-    while (Offset < Table->Length)
++    while (Offset < TableLength)
+     {
+         /* Common subtable header */
+ 
+-        Status = AcpiDmDumpTable (Length, Offset, Subtable,
++        Status = AcpiDmDumpTable (TableLength, Offset, Subtable,
+             sizeof (ACPI_LPIT_HEADER), AcpiDmTableInfoLpitHdr);
+         if (ACPI_FAILURE (Status))
+         {
+@@ -727,7 +727,7 @@ AcpiDmDumpLpit (
+             return;
+         }
+ 
+-        Status = AcpiDmDumpTable (Length, Offset, Subtable,
++        Status = AcpiDmDumpTable (TableLength, Offset, Subtable,
+             SubtableLength, InfoTable);
+         if (ACPI_FAILURE (Status))
+         {

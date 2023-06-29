@@ -1,0 +1,32 @@
+From 0c4be57a5e0e45b4197c2d9a0b26462d3b1a9b80 Mon Sep 17 00:00:00 2001
+From: Al Stone <ahs3@redhat.com>
+Date: Fri, 18 Sep 2020 16:54:13 -0600
+Subject: [PATCH 10/45] Support CPEP tables in a big-endian world
+
+Signed-off-by: Al Stone <ahs3@redhat.com>
+---
+ source/common/dmtbdump1.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+Index: acpica-unix2-20220331/source/common/dmtbdump1.c
+===================================================================
+--- acpica-unix2-20220331.orig/source/common/dmtbdump1.c
++++ acpica-unix2-20220331/source/common/dmtbdump1.c
+@@ -614,7 +614,7 @@ AcpiDmDumpCpep (
+ {
+     ACPI_STATUS             Status;
+     ACPI_CPEP_POLLING       *Subtable;
+-    UINT32                  Length = Table->Length;
++    UINT32                  Length = AcpiUtReadUint32 (&Table->Length);
+     UINT32                  Offset = sizeof (ACPI_TABLE_CPEP);
+ 
+ 
+@@ -629,7 +629,7 @@ AcpiDmDumpCpep (
+     /* Subtables */
+ 
+     Subtable = ACPI_ADD_PTR (ACPI_CPEP_POLLING, Table, Offset);
+-    while (Offset < Table->Length)
++    while (Offset < Length)
+     {
+         AcpiOsPrintf ("\n");
+         Status = AcpiDmDumpTable (Length, Offset, Subtable,
