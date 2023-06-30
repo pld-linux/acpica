@@ -1,0 +1,17 @@
+--- acpica-unix2-20220331/generate/unix/Makefile.rules.orig	2022-03-31 18:38:50.000000000 +0200
++++ acpica-unix2-20220331/generate/unix/Makefile.rules	2023-06-30 06:26:50.646746447 +0200
+@@ -12,12 +12,12 @@ $(FINAL_PROG) : $(PROG)
+ 
+ $(PROG) : $(INTERMEDIATES) $(MISC) $(OBJECTS)
+ 	@echo "- Link" $(PROG)
+-	@$(LINKPROG)
++	$(LINKPROG)
+ 	$(RENAMEPROG)
+ 
+ $(OBJDIR)/%.o : %.c $(HEADERS) $(ACPICA_HEADERS)
+ 	@echo $(PROG)  $<
+-	@$(COMPILEOBJ)
++	$(COMPILEOBJ)
+ 
+ clean :
+ 	@rm -f $(PROG) $(PROG).exe $(OBJECTS) $(OBJDIR)/*.o $(INTERMEDIATES) $(MISC)

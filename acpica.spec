@@ -87,9 +87,10 @@ Patch114:	%{name}-dbtest.patch
 Patch115:	%{name}-ull-32bit.patch
 Patch116:	%{name}-dangling-ptr.patch
 Patch117:	%{name}-uuid-len.patch
+Patch200:	%{name}-verbose.patch
 URL:		https://acpica.org/
-BuildRequires:	bison
-BuildRequires:	flex
+BuildRequires:	bison >= 2.5.3
+BuildRequires:	flex >= 2.4.1
 BuildRequires:	sed >= 4.0
 Provides:	iasl
 Obsoletes:	iasl < 20061110
@@ -171,6 +172,7 @@ tar -x --strip-components=1 -f %{SOURCE1}
 %patch115 -p1
 %patch116 -p1
 %patch117 -p1
+%patch200 -p1
 
 %build
 %define	makeopts \\\
@@ -208,7 +210,8 @@ cd ..
 rm -rf $RPM_BUILD_ROOT
 
 %{__make} install \
-	DESTDIR=$RPM_BUILD_ROOT
+	DESTDIR=$RPM_BUILD_ROOT \
+	INSTALLFLAGS="-m755"
 
 install -d $RPM_BUILD_ROOT%{_mandir}/man1
 cp -p %{SOURCE2} %{SOURCE3} %{SOURCE4} %{SOURCE5} %{SOURCE6} %{SOURCE8} %{SOURCE9} \
