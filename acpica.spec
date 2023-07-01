@@ -9,6 +9,7 @@ Version:	20220331
 Release:	1
 License:	GPL v2
 Group:		Development/Tools
+#Source0Download: https://acpica.org/downloads
 Source0:	https://acpica.org/sites/acpica/files/%{name}-unix2-%{version}.tar.gz
 # Source0-md5:	5721db851442be86054d45acd1dcacef
 Source1:	https://acpica.org/sites/acpica/files/acpitests-unix-%{version}.tar.gz
