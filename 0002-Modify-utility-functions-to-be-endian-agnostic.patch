@@ -24,54 +24,23 @@ Signed-off-by: Al Stone <ahs3@redhat.com>
  source/components/tables/tbprint.c | 13 +++++++++----
  5 files changed, 26 insertions(+), 17 deletions(-)
 
-Index: acpica-unix2-20220331/source/common/acfileio.c
-===================================================================
---- acpica-unix2-20220331.orig/source/common/acfileio.c
-+++ acpica-unix2-20220331/source/common/acfileio.c
-@@ -280,6 +280,7 @@ AcGetOneTableFromFile (
-     ACPI_TABLE_HEADER       *Table;
-     INT32                   Count;
-     long                    TableOffset;
-+    UINT32                  Length;
- 
- 
-     *ReturnTable = NULL;
-@@ -319,7 +320,8 @@ AcGetOneTableFromFile (
+--- acpica-unix2-20221020/source/common/acfileio.c.orig	2022-10-20 23:17:29.000000000 +0200
++++ acpica-unix2-20221020/source/common/acfileio.c	2023-07-01 21:29:48.697091987 +0200
+@@ -337,11 +337,11 @@ AcGetOneTableFromFile (
+      */
+     if (AcpiGbl_CDAT)
+     {
+-        TableLength = ACPI_CAST_PTR (ACPI_TABLE_CDAT, &TableHeader)->Length;
++        TableLength = AcpiUtReadUint32(&(ACPI_CAST_PTR (ACPI_TABLE_CDAT, &TableHeader)->Length));
+     }
+     else
+     {
+-        TableLength = TableHeader.Length;
++        TableLength = AcpiUtReadUint32(&TableHeader.Length);
+     }
  
      /* Allocate a buffer for the entire table */
- 
--    Table = AcpiOsAllocate ((ACPI_SIZE) TableHeader.Length);
-+    Length = AcpiUtReadUint32 (&TableHeader.Length);
-+    Table = AcpiOsAllocate ((ACPI_SIZE) Length);
-     if (!Table)
-     {
-         return (AE_NO_MEMORY);
-@@ -329,13 +331,13 @@ AcGetOneTableFromFile (
- 
-     fseek (File, TableOffset, SEEK_SET);
- 
--    Count = fread (Table, 1, TableHeader.Length, File);
-+    Count = fread (Table, 1, Length, File);
- 
-     /*
-      * Checks for data table headers happen later in the execution. Only verify
-      * for Aml tables at this point in the code.
-      */
--    if (GetOnlyAmlTables && Count != (INT32) TableHeader.Length)
-+    if (GetOnlyAmlTables && Count != (INT32) Length)
-     {
-         Status = AE_ERROR;
-         goto ErrorExit;
-@@ -343,7 +345,7 @@ AcGetOneTableFromFile (
- 
-     /* Validate the checksum (just issue a warning) */
- 
--    Status = AcpiTbVerifyChecksum (Table, TableHeader.Length);
-+    Status = AcpiTbVerifyChecksum (Table, Length);
-     if (ACPI_FAILURE (Status))
-     {
-         Status = AcCheckTextModeCorruption (Table);
-@@ -436,6 +438,7 @@ AcValidateTableHeader (
+@@ -474,6 +474,7 @@ AcValidateTableHeader (
      long                    OriginalOffset;
      UINT32                  FileSize;
      UINT32                  i;
@@ -79,26 +48,44 @@ Index: acpica-unix2-20220331/source/common/acfileio.c
  
  
      ACPI_FUNCTION_TRACE (AcValidateTableHeader);
-@@ -472,11 +475,12 @@ AcValidateTableHeader (
-     /* Validate table length against bytes remaining in the file */
+@@ -537,25 +538,30 @@ AcValidateTableHeader (
+     {
+         /* Standard ACPI table header */
  
-     FileSize = CmGetFileSize (File);
--    if (TableHeader.Length > (UINT32) (FileSize - TableOffset))
-+    Length = AcpiUtReadUint32 (&TableHeader.Length);
+-        if (TableHeader.Length > (UINT32) (FileSize - TableOffset))
++        Length = AcpiUtReadUint32 (&TableHeader.Length);
++        if (Length > (UINT32) (FileSize - TableOffset))
+         {
+             fprintf (stderr, "Table [%4.4s] is too long for file - "
+                 "needs: 0x%.2X, remaining in file: 0x%.2X\n",
+-                TableHeader.Signature, TableHeader.Length,
++                TableHeader.Signature, Length,
+                 (UINT32) (FileSize - TableOffset));
+             return (AE_BAD_HEADER);
+         }
+     }
+-    else if (CdatTableHeader->Length > (UINT32) (FileSize - TableOffset))
++    else
++    {
++    Length = AcpiUtReadUint32 (&CdatTableHeader->Length);
 +    if (Length > (UINT32) (FileSize - TableOffset))
      {
-         fprintf (stderr, "Table [%4.4s] is too long for file - "
+         /* Special header for CDAT table */
+ 
+         fprintf (stderr, "Table [CDAT] is too long for file - "
              "needs: 0x%.2X, remaining in file: 0x%.2X\n",
--            TableHeader.Signature, TableHeader.Length,
-+            TableHeader.Signature, Length,
+-            CdatTableHeader->Length,
++            Length,
              (UINT32) (FileSize - TableOffset));
          return (AE_BAD_HEADER);
      }
-Index: acpica-unix2-20220331/source/common/dmtable.c
-===================================================================
---- acpica-unix2-20220331.orig/source/common/dmtable.c
-+++ acpica-unix2-20220331/source/common/dmtable.c
-@@ -713,7 +713,7 @@ AcpiDmDumpDataTable (
++    }
+ 
+     /* For CDAT table, there are no ASCII fields in the header, we are done */
+ 
+--- acpica-unix2-20221020/source/common/dmtable.c.orig	2022-10-20 23:17:29.000000000 +0200
++++ acpica-unix2-20221020/source/common/dmtable.c	2023-07-01 21:33:40.842501014 +0200
+@@ -695,7 +695,7 @@ AcpiDmDumpDataTable (
          {
              /* Dump the raw table data */
  
@@ -107,7 +94,7 @@ Index: acpica-unix2-20220331/source/common/dmtable.c
  
              AcpiOsPrintf ("\n/*\n%s: Length %d (0x%X)\n\n",
                  ACPI_RAW_TABLE_DATA_HEADER, Length, Length);
-@@ -730,7 +730,7 @@ AcpiDmDumpDataTable (
+@@ -712,7 +712,7 @@ AcpiDmDumpDataTable (
       */
      if (ACPI_COMPARE_NAMESEG (Table->Signature, ACPI_SIG_FACS))
      {
@@ -116,7 +103,7 @@ Index: acpica-unix2-20220331/source/common/dmtable.c
          Status = AcpiDmDumpTable (Length, 0, Table, 0, AcpiDmTableInfoFacs);
          if (ACPI_FAILURE (Status))
          {
-@@ -751,7 +751,7 @@ AcpiDmDumpDataTable (
+@@ -755,7 +755,7 @@ AcpiDmDumpDataTable (
          /*
           * All other tables must use the common ACPI table header, dump it now
           */
@@ -125,10 +112,19 @@ Index: acpica-unix2-20220331/source/common/dmtable.c
          Status = AcpiDmDumpTable (Length, 0, Table, 0, AcpiDmTableInfoHeader);
          if (ACPI_FAILURE (Status))
          {
-@@ -1415,7 +1415,7 @@ AcpiDmDumpTable (
+@@ -1146,7 +1146,7 @@ AcpiDmDumpTable (
+              *          Start of the vendor data (Target)
+              */
+             ByteLength = ((ACPI_CAST_PTR (char, Table) +
+-                            (ACPI_CAST_PTR (ACPI_PMTT_HEADER, Table)->Length)) -
++                            AcpiUtReadUint32 (&(ACPI_CAST_PTR (ACPI_PMTT_HEADER, Table)->Length))) -
+                             ACPI_CAST_PTR (char, Target));
+             break;
+ 
+@@ -1421,7 +1421,7 @@ AcpiDmDumpTable (
  
              AcpiOsPrintf ("%2.2X", *Target);
-             Temp8 = AcpiDmGenerateChecksum (Table,
+             Temp8 = AcpiUtGenerateChecksum (Table,
 -                ACPI_CAST_PTR (ACPI_TABLE_HEADER, Table)->Length,
 +                AcpiUtReadUint32 (&(ACPI_CAST_PTR (ACPI_TABLE_HEADER, Table)->Length)),
                  ACPI_CAST_PTR (ACPI_TABLE_HEADER, Table)->Checksum);
@@ -160,20 +156,17 @@ Index: acpica-unix2-20220331/source/compiler/dtsubtable.c
 +    AcpiUtWriteUint (Subtable->LengthField, Subtable->SizeOfLengthField,
 +                     &Subtable->TotalLength, sizeof (Subtable->TotalLength));
  }
-Index: acpica-unix2-20220331/source/components/tables/tbprint.c
-===================================================================
---- acpica-unix2-20220331.orig/source/components/tables/tbprint.c
-+++ acpica-unix2-20220331/source/components/tables/tbprint.c
-@@ -44,6 +44,8 @@
- #include "acpi.h"
- #include "accommon.h"
+--- acpica-unix2-20221020/source/components/tables/tbprint.c.orig	2022-10-20 23:17:32.000000000 +0200
++++ acpica-unix2-20221020/source/components/tables/tbprint.c	2023-07-01 21:41:53.759830651 +0200
+@@ -46,6 +46,7 @@
  #include "actables.h"
+ #include "acdisasm.h"
+ #include "acutils.h"
 +#include "platform/acenv.h"
-+#include "acutils.h"
  
  #define _COMPONENT          ACPI_TABLES
          ACPI_MODULE_NAME    ("tbprint")
-@@ -151,7 +153,7 @@ AcpiTbPrintTableHeader (
+@@ -153,7 +154,7 @@ AcpiTbPrintTableHeader (
  
          ACPI_INFO (("%-4.4s 0x%8.8X%8.8X %06X",
              Header->Signature, ACPI_FORMAT_UINT64 (Address),
@@ -182,7 +175,16 @@ Index: acpica-unix2-20220331/source/components/tables/tbprint.c
      }
      else if (ACPI_VALIDATE_RSDP_SIG (ACPI_CAST_PTR (ACPI_TABLE_RSDP,
          Header)->Signature))
-@@ -179,9 +181,12 @@ AcpiTbPrintTableHeader (
+@@ -167,7 +168,7 @@ AcpiTbPrintTableHeader (
+         ACPI_INFO (("RSDP 0x%8.8X%8.8X %06X (v%.2d %-6.6s)",
+             ACPI_FORMAT_UINT64 (Address),
+             (ACPI_CAST_PTR (ACPI_TABLE_RSDP, Header)->Revision > 0) ?
+-                ACPI_CAST_PTR (ACPI_TABLE_RSDP, Header)->Length : 20,
++                AcpiUtReadUint32 (&(ACPI_CAST_PTR (ACPI_TABLE_RSDP, Header)->Length)) : 20,
+             ACPI_CAST_PTR (ACPI_TABLE_RSDP, Header)->Revision,
+             LocalHeader.OemId));
+     }
+@@ -181,9 +182,12 @@ AcpiTbPrintTableHeader (
              "%-4.4s 0x%8.8X%8.8X"
              " %06X (v%.2d %-6.6s %-8.8s %08X %-4.4s %08X)",
              LocalHeader.Signature, ACPI_FORMAT_UINT64 (Address),

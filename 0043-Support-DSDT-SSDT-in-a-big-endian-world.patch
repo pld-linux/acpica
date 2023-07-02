@@ -69,10 +69,8 @@ Index: acpica-unix2-20220331/source/common/dmrestag.c
          AcpiDmAddResourceToNamespace, (void **) BufferNode);
  }
  
-Index: acpica-unix2-20220331/source/common/dmtables.c
-===================================================================
---- acpica-unix2-20220331.orig/source/common/dmtables.c
-+++ acpica-unix2-20220331/source/common/dmtables.c
+--- acpica-unix2-20221020/source/common/dmtables.c.orig	2022-10-20 23:17:29.000000000 +0200
++++ acpica-unix2-20221020/source/common/dmtables.c	2023-07-01 21:54:16.342474403 +0200
 @@ -142,6 +142,10 @@ AdCreateTableHeader (
      ACPI_TABLE_HEADER       *Table)
  {
@@ -97,8 +95,8 @@ Index: acpica-unix2-20220331/source/common/dmtables.c
  
      AcpiOsPrintf ("\n *     Checksum         0x%2.2X",        Table->Checksum);
  
--    Checksum = AcpiTbChecksum (ACPI_CAST_PTR (UINT8, Table), Table->Length);
-+    Checksum = AcpiTbChecksum (ACPI_CAST_PTR (UINT8, Table), TableLength);
+-    Checksum = AcpiUtChecksum (ACPI_CAST_PTR (UINT8, Table), Table->Length);
++    Checksum = AcpiUtChecksum (ACPI_CAST_PTR (UINT8, Table), TableLength);
      if (Checksum)
      {
          AcpiOsPrintf (" **** Incorrect checksum, should be 0x%2.2X",
@@ -123,6 +121,27 @@ Index: acpica-unix2-20220331/source/common/dmtables.c
  }
  
  
+@@ -243,7 +247,7 @@ AdDisplayTables (
+     char                    *Filename,
+     ACPI_TABLE_HEADER       *Table)
+ {
+-
++    UINT32 TableLength = AcpiUtReadUint32 (&Table->Length);
+ 
+     if (!AcpiGbl_ParseOpRoot)
+     {
+@@ -264,9 +268,9 @@ AdDisplayTables (
+         AcpiUtDebugDumpBuffer ((UINT8 *) Table, sizeof (ACPI_TABLE_HEADER),
+             DB_BYTE_DISPLAY, ACPI_UINT32_MAX);
+ 
+-        AcpiOsPrintf ("Table Body (Length 0x%X)\n", Table->Length);
++        AcpiOsPrintf ("Table Body (Length 0x%X)\n", TableLength);
+         AcpiUtDebugDumpBuffer (((UINT8 *) Table + sizeof (ACPI_TABLE_HEADER)),
+-            Table->Length, DB_BYTE_DISPLAY, ACPI_UINT32_MAX);
++            TableLength, DB_BYTE_DISPLAY, ACPI_UINT32_MAX);
+     }
+ 
+     return (AE_OK);
 @@ -396,7 +400,8 @@ AdParseTable (
  
      fprintf (stderr, "Pass 1 parse of [%4.4s]\n", (char *) Table->Signature);

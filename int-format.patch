@@ -250,15 +250,6 @@ Index: acpica-unix2-20220331/source/components/tables/tbxfroot.c
  
          return_ACPI_STATUS (AE_NO_MEMORY);
      }
-@@ -204,7 +204,7 @@ AcpiFindRootPointer (
-         {
-             ACPI_ERROR ((AE_INFO,
-                 "Could not map memory at 0x%8.8X for length %u",
--                PhysicalAddress, ACPI_EBDA_WINDOW_SIZE));
-+                PhysicalAddress, (UINT32) ACPI_EBDA_WINDOW_SIZE));
- 
-             return_ACPI_STATUS (AE_NO_MEMORY);
-         }
 @@ -236,7 +236,7 @@ AcpiFindRootPointer (
      {
          ACPI_ERROR ((AE_INFO,
