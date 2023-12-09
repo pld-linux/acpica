@@ -185,8 +185,6 @@ tar -x --strip-components=1 -f %{SOURCE1}
 %{__make} %{makeopts}
 
 %if %{with tests}
-%{__make} %{makeopts} -C tests/templates
-
 cd tests
 
 # ASL tests
