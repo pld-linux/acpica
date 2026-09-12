@@ -5,15 +5,15 @@
 Summary:	ACPI Component Architecture - an assembler and disassembler for DSDT tables
 Summary(pl.UTF-8):	ACPI CA - asembler i disasembler dla tablic DSDT
 Name:		acpica
-Version:	20220331
+Version:	20260408
 Release:	1
 License:	GPL v2
 Group:		Development/Tools
-#Source0Download: https://acpica.org/downloads
-Source0:	https://acpica.org/sites/acpica/files/%{name}-unix2-%{version}.tar.gz
-# Source0-md5:	5721db851442be86054d45acd1dcacef
-Source1:	https://acpica.org/sites/acpica/files/acpitests-unix-%{version}.tar.gz
-# Source1-md5:	9902b30fd402852a90a4ec59e471c5ff
+#Source0Download: https://github.com/open-acpica/acpica/releases
+Source0:	https://github.com/open-acpica/acpica/releases/download/%{version}/%{name}-unix2-%{version}.tar.gz
+# Source0-md5:	9f271ef5d0e8adbe09c09be83673d3c4
+Source1:	https://github.com/open-acpica/acpica/releases/download/%{version}/acpitests-unix-%{version}.tar.gz
+# Source1-md5:	d87dab04f10f691605ec31ecdc50584f
 Source2:	iasl.1
 Source3:	acpibin.1
 Source4:	acpidump.1
@@ -21,75 +21,16 @@ Source5:	acpiexec.1
 Source6:	acpihelp.1
 Source8:	acpisrc.1
 Source9:	acpixtract.1
-Patch0:		0001-Add-in-basic-infrastructure-for-big-endian-support.patch
-Patch1:		0002-Modify-utility-functions-to-be-endian-agnostic.patch
-Patch2:		0003-Always-display-table-header-content-in-human-readabl.patch
-Patch3:		0004-Re-enable-support-for-big-endian-machines.patch
-Patch4:		0005-Correct-an-endian-ness-problem-when-converting-ASL-t.patch
-Patch5:		0006-Use-more-reliable-ACPI_COPY_NAMSEG-in-GPE-name-check.patch
-Patch6:		0007-Handle-dumping-Unicode-properly-when-big-endian.patch
-Patch7:		0008-Support-MADT-aka-APIC-in-a-big-endian-world.patch
-Patch8:		0009-Support-ASF-tables-in-a-big-endian-world.patch
-Patch9:		0010-Support-CPEP-tables-in-a-big-endian-world.patch
-Patch10:	0011-Support-DBG2-table-in-a-big-endian-world.patch
-Patch11:	0012-Support-DMAR-in-a-big-endian-world.patch
-Patch12:	0013-Support-DRTM-in-a-big-endian-world.patch
-Patch13:	0014-Support-EINJ-in-a-big-endian-world.patch
-Patch14:	0015-Support-ERST-in-a-big-endian-world.patch
-Patch15:	0016-Support-FADT-aka-FACP-in-a-big-endian-world.patch
-Patch16:	0017-Support-most-FPDTs-in-a-big-endian-world.patch
-Patch17:	0018-Support-GTDT-in-a-big-endian-world.patch
-Patch18:	0019-Support-HEST-in-a-big-endian-world.patch
-Patch19:	0020-Support-RSDT-RSD-PTR-in-a-big-endian-world.patch
-Patch20:	0021-Support-XSDT-in-a-big-endian-world.patch
-Patch21:	0022-Support-SRAT-in-a-big-endian-world.patch
-Patch22:	0023-Support-SLIT-in-a-big-endian-world.patch
-Patch23:	0024-Support-MSCT-in-a-big-endian-world.patch
-Patch24:	0025-Support-MPST-in-a-big-endian-world.patch
-Patch25:	0026-Support-NFIT-in-a-big-endian-world.patch
-Patch26:	0027-Support-SDEV-in-a-big-endian-world.patch
-Patch27:	0028-Support-HMAT-in-a-big-endian-world.patch
-Patch28:	0029-Support-PDTT-in-a-big-endian-world.patch
-Patch29:	0030-Support-PPTT-in-a-big-endian-world.patch
-Patch30:	0031-Support-PCCT-in-a-big-endian-world.patch
-Patch31:	0032-Support-WDAT-in-a-big-endian-world.patch
-Patch32:	0033-Support-TCPA-in-a-big-endian-world.patch
-Patch33:	0034-Support-STAO-in-a-big-endian-world.patch
-Patch34:	0035-Support-SLIC-and-MSDM-in-a-big-endian-world.patch
-Patch35:	0036-Support-MCFG-in-a-big-endian-world.patch
-Patch36:	0037-Support-LPIT-in-a-big-endian-world.patch
-Patch37:	0038-Support-PMTT-in-a-big-endian-world.patch
-Patch38:	0039-Support-TPM2-in-a-big-endian-world.patch
-Patch39:	0040-Support-S3PT-in-a-big-endian-world.patch
-Patch40:	0041-Support-IORT-in-a-big-endian-world.patch
-Patch41:	0042-Support-IVRS-in-a-big-endian-world.patch
-Patch42:	0043-Support-DSDT-SSDT-in-a-big-endian-world.patch
-# skipped in Fedora(?)
-#Patch43:	0044-Initial-support-for-WPBT-in-big-endian-needs-more.patch
-Patch44:	0045-CSRT-fixed-use-of-optional-ResourceInfo.patch
-Patch45:	0046-Support-PHAT-in-a-big-endian-world.patch
-Patch46:	0047-Support-PRMT-in-a-big-endian-world.patch
-Patch47:	0048-Support-RGRT-in-a-big-endian-world.patch
-Patch48:	0049-Support-SVKL-in-a-big-endian-world.patch
 Patch100:	%{name}-unaligned.patch
-Patch101:	%{name}-OPT_LDFLAGS.patch
 Patch102:	int-format.patch
 Patch104:	template.patch
 Patch105:	arm7hl.patch
-Patch106:       %{name}-simple-64bit.patch
-Patch107:	mips-be-fix.patch
-Patch108:	cve-2017-13693.patch
-Patch109:	cve-2017-13694.patch
 Patch110:	cve-2017-13695.patch
 Patch111:	str-trunc-warn.patch
-Patch112:	ptr-cast.patch
-Patch113:	armv7-str-fixes.patch
-Patch114:	%{name}-dbtest.patch
-Patch115:	%{name}-ull-32bit.patch
 Patch116:	%{name}-dangling-ptr.patch
 Patch117:	%{name}-uuid-len.patch
 Patch200:	%{name}-verbose.patch
-URL:		https://acpica.org/
+URL:		https://github.com/open-acpica/acpica
 BuildRequires:	bison >= 2.5.3
 BuildRequires:	flex >= 2.4.1
 BuildRequires:	sed >= 4.0
@@ -108,76 +49,19 @@ tablic DSDT.
 %prep
 %setup -q -n %{name}-unix2-%{version}
 tar -x --strip-components=1 -f %{SOURCE1}
-%patch -P0 -p1
-%patch -P1 -p1
-%patch -P2 -p1
-%patch -P3 -p1
-%patch -P4 -p1
-%patch -P5 -p1
-%patch -P6 -p1
-%patch -P7 -p1
-%patch -P8 -p1
-%patch -P9 -p1
-%patch -P10 -p1
-%patch -P11 -p1
-%patch -P12 -p1
-%patch -P13 -p1
-%patch -P14 -p1
-%patch -P15 -p1
-%patch -P16 -p1
-%patch -P17 -p1
-%patch -P18 -p1
-%patch -P19 -p1
-%patch -P20 -p1
-%patch -P21 -p1
-%patch -P22 -p1
-%patch -P23 -p1
-%patch -P24 -p1
-%patch -P25 -p1
-%patch -P26 -p1
-%patch -P27 -p1
-%patch -P28 -p1
-%patch -P29 -p1
-%patch -P30 -p1
-%patch -P31 -p1
-%patch -P32 -p1
-%patch -P33 -p1
-%patch -P34 -p1
-%patch -P35 -p1
-%patch -P36 -p1
-%patch -P37 -p1
-%patch -P38 -p1
-%patch -P39 -p1
-%patch -P40 -p1
-%patch -P41 -p1
-%patch -P42 -p1
-#patch43 -p1
-%patch -P44 -p1
-%patch -P45 -p1
-%patch -P46 -p1
-%patch -P47 -p1
 %patch -P100 -p1
-%patch -P101 -p1
 %patch -P102 -p1
 %patch -P104 -p1
 %patch -P105 -p1
-%patch -P106 -p1
-%patch -P107 -p1
-%patch -P108 -p1
-%patch -P109 -p1
 %patch -P110 -p1
 %patch -P111 -p1
-%patch -P112 -p1
-%patch -P113 -p1
-%patch -P114 -p1
-%patch -P115 -p1
 %patch -P116 -p1
 %patch -P117 -p1
 %patch -P200 -p1
 
 %build
 %define	makeopts \\\
-	HOST=_LINUX \\\
+	ACPI_HOST=_LINUX \\\
 	CC="%{__cc}" \\\
 	OPT_CFLAGS="%{rpmcflags}" \\\
 	OPT_LDFLAGS="%{rpmcflags} %{rpmldflags}"
